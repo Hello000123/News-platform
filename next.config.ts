@@ -44,7 +44,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/",
+        source: "/review",
         headers: [
           { key: "Cache-Control", value: "private, no-store, max-age=0" },
           { key: "Pragma", value: "no-cache" },

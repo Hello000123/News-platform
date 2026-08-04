@@ -20,7 +20,7 @@ export default async function EmployeeRequestPage({
   if (!request) notFound();
 
   return (
-    <>
+    <div className="editorial-admin">
       <AccountBar user={session.user} />
       <main className="employee-page">
         <div className="employee-shell">
@@ -30,6 +30,6 @@ export default async function EmployeeRequestPage({
           <EmployeeRequestDetails initialRequest={request} />
         </div>
       </main>
-    </>
+    </div>
   );
 }

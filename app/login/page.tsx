@@ -16,7 +16,7 @@ export default async function LoginPage({
   searchParams: Promise<{ returnTo?: string; reason?: string }>;
 }) {
   const session = await getOptionalPageSession();
-  if (session) redirect(session.user.role === "employee" ? "/employee" : "/");
+  if (session) redirect(session.user.role === "employee" ? "/employee" : "/review");
   const parameters = await searchParams;
 
   return (

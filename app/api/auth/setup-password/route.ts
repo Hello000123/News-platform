@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const response = NextResponse.json(
       {
         user: result.user,
-        redirectTo: "/",
+        redirectTo: result.user.role === "employee" ? "/employee" : "/review",
       },
       {
         status: 200,

@@ -12,7 +12,7 @@ export const metadata = {
 export default async function EmployeeApprovalPage() {
   const session = await requirePageSession("/employee", ["employee"]);
   return (
-    <>
+    <div className="editorial-admin">
       <AccountBar user={session.user} />
       <main className="employee-page">
         <div className="employee-shell">
@@ -22,13 +22,13 @@ export default async function EmployeeApprovalPage() {
               <h1>Admin Panel</h1>
               <p>Review applications and manage client and employee account records.</p>
             </div>
-            <Link className="button button-secondary" href="/">
+            <Link className="button button-secondary" href="/review">
               Review workspace
             </Link>
           </div>
           <ApprovalDashboard />
         </div>
       </main>
-    </>
+    </div>
   );
 }

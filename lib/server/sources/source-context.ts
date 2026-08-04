@@ -48,6 +48,12 @@ export type SourceContextErrorCode =
   | "SOURCE_TOO_LARGE"
   | "UNSUPPORTED_SOURCE_TYPE";
 
+export interface FetchPublicContentResult {
+  readonly url: string;
+  readonly mediaType: string;
+  readonly body: string;
+}
+
 export class SourceContextError extends Error {
   constructor(public readonly code: SourceContextErrorCode, message: string) {
     super(message);
@@ -68,6 +74,12 @@ const DEFAULT_LIMITS: SourceContextLimits = Object.freeze({
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const RAW_IGNORED_TAGS = ["script", "style", "noscript", "template", "svg"];
+const FEED_XML_MEDIA_TYPES = new Set([
+  "application/rss+xml",
+  "application/atom+xml",
+  "application/xml",
+  "text/xml",
+]);
 const IGNORED_TAGS = new Set([
   ...RAW_IGNORED_TAGS,
   "nav",
@@ -232,11 +244,25 @@ function resolveLimits(overrides: Partial<SourceContextLimits> | undefined): Sou
   });
 }
 
+export async function fetchPublicContent(
+  rawUrl: string,
+  dependencies: SourceContextDependencies = {},
+  options: { allowXmlFeed?: boolean } = {},
+): Promise<FetchPublicContentResult> {
+  const limits = resolveLimits(dependencies.limits);
+  return retrievePublicSource(rawUrl, {
+    fetchImpl: dependencies.fetchImpl ?? fetch,
+    dnsLookup: dependencies.dnsLookup ?? defaultDnsLookup,
+    limits,
+    allowXmlFeed: options.allowXmlFeed,
+  });
+}
+
 async function retrievePublicSource(
   rawUrl: string,
   dependencies: Required<
     Pick<SourceContextDependencies, "fetchImpl" | "dnsLookup">
-  > & { readonly limits: SourceContextLimits },
+  > & { readonly limits: SourceContextLimits; readonly allowXmlFeed?: boolean },
 ): Promise<RetrievedSource> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), dependencies.limits.timeoutMs);
@@ -309,7 +335,10 @@ async function retrievePublicSource(
         );
       }
 
-      const mediaType = getSupportedMediaType(response.headers.get("content-type"));
+      const mediaType = getSupportedMediaType(
+        response.headers.get("content-type"),
+        dependencies.allowXmlFeed,
+      );
       const contentLength = parseContentLength(response.headers.get("content-length"));
       if (contentLength !== null && contentLength > dependencies.limits.maxResponseBytes) {
         await response.body?.cancel().catch(() => undefined);
@@ -505,10 +534,11 @@ function stripIpv6Brackets(hostname: string): string {
     : hostname;
 }
 
-function getSupportedMediaType(contentType: string | null): string {
+function getSupportedMediaType(contentType: string | null, allowXmlFeed = false): string {
   const mediaType = (contentType ?? "text/plain").split(";", 1)[0].trim().toLowerCase();
   if (mediaType === "text/html" || mediaType === "application/xhtml+xml") return mediaType;
   if (mediaType.startsWith("text/")) return "text/plain";
+  if (allowXmlFeed && FEED_XML_MEDIA_TYPES.has(mediaType)) return "application/xml";
   throw new SourceContextError(
     "UNSUPPORTED_SOURCE_TYPE",
     "The source must be an HTML or plain-text page.",

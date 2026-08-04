@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ClientRemovalDialog } from "@/components/employee/client-removal-dialog";
+import { FeedManagement } from "@/components/employee/feed-management";
 import {
   AuthRequestError,
   listEmployeeAccountRequests,
@@ -17,13 +18,14 @@ import type {
   EmailDeliveryView,
 } from "@/lib/shared/auth-contracts";
 
-type AdminTab = "approval" | "clients" | "employees";
+type AdminTab = "approval" | "clients" | "employees" | "feeds";
 type Filter = AccountRequestStatus | "all";
 
 const ADMIN_TABS: Array<{ value: AdminTab; label: string }> = [
   { value: "approval", label: "Account Approval" },
   { value: "clients", label: "Client Accounts" },
   { value: "employees", label: "Employee Accounts" },
+  { value: "feeds", label: "News Feeds" },
 ];
 
 const FILTERS: Array<{ value: Filter; label: string }> = [
@@ -66,6 +68,12 @@ export function ApprovalDashboard() {
   useEffect(() => {
     let cancelled = false;
 
+    if (activeTab === "feeds") {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const request =
       activeTab === "approval"
         ? listEmployeeAccountRequests(filter === "all" ? undefined : filter)
@@ -105,7 +113,7 @@ export function ApprovalDashboard() {
     setErrorMessage("");
     setAccounts([]);
     setRequests([]);
-    setLoading(true);
+    if (tab !== "feeds") setLoading(true);
     setActiveTab(tab);
   }
 
@@ -184,7 +192,7 @@ export function ApprovalDashboard() {
         </div>
       ) : null}
 
-      {loading ? (
+      {loading && activeTab !== "feeds" ? (
         <div className="loading-panel" role="status">
           <span className="spinner spinner-dark" aria-hidden="true" />
           <div>
@@ -270,7 +278,17 @@ export function ApprovalDashboard() {
         ) : null}
       </section>
 
-      {activeTab !== "approval" ? (
+      {activeTab === "feeds" ? (
+        <section
+          id="admin-panel-feeds"
+          role="tabpanel"
+          aria-labelledby="admin-tab-feeds"
+        >
+          <FeedManagement />
+        </section>
+      ) : null}
+
+      {activeTab !== "approval" && activeTab !== "feeds" ? (
         <section
           id={`admin-panel-${activeTab}`}
           className="admin-account-panel"

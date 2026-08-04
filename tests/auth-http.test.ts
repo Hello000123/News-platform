@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { authErrorResponse } from "@/lib/server/auth/http";
+import { authErrorResponse, safeReturnPath } from "@/lib/server/auth/http";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -39,5 +39,20 @@ describe("authentication error handling", () => {
       }),
     );
     expect(JSON.stringify(log.mock.calls)).not.toContain("sensitive database details");
+  });
+});
+
+describe("authentication return paths", () => {
+  it("defaults client sessions to the protected review workspace", () => {
+    expect(safeReturnPath(undefined, "client")).toBe("/review");
+    expect(safeReturnPath("/employee", "client")).toBe("/review");
+    expect(safeReturnPath("/pipeline?tab=articles", "client")).toBe(
+      "/pipeline?tab=articles",
+    );
+  });
+
+  it("keeps employee defaults on the employee panel", () => {
+    expect(safeReturnPath(undefined, "employee")).toBe("/employee");
+    expect(safeReturnPath("/admin", "employee")).toBe("/admin");
   });
 });

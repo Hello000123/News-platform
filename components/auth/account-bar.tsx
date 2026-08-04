@@ -6,10 +6,16 @@ import type { AuthenticatedUser } from "@/lib/shared/auth-contracts";
 export function AccountBar({ user }: { user: AuthenticatedUser }) {
   return (
     <header className="account-bar">
-      <Link className="account-brand" href="/">
+      <Link className="account-brand" href="/review">
         PressReady
       </Link>
       <nav aria-label="Account navigation">
+        <Link className="account-link" href="/">
+          News Site
+        </Link>
+        <Link className="account-link" href="/pipeline">
+          News Pipeline
+        </Link>
         {user.role === "employee" ? (
           <Link className="account-link" href="/employee">
             Admin Panel

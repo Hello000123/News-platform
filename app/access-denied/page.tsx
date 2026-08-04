@@ -12,7 +12,7 @@ export default function AccessDeniedPage() {
       eyebrow="Restricted area"
       title="Access denied"
       description="Your account does not have employee permission to open the Admin Panel."
-      footer={<Link href="/">Return to the review workspace</Link>}
+      footer={<Link href="/review">Return to the review workspace</Link>}
     >
       <div className="auth-alert auth-alert-error" role="alert">
         Client accounts cannot access Admin Panel pages or APIs.

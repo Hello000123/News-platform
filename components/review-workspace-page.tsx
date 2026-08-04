@@ -13,7 +13,7 @@ export function ReviewWorkspacePage({
   initialModel: SelectableModelId;
 }) {
   return (
-    <>
+    <div className="editorial-admin">
       <AccountBar user={user} />
       <main>
         <div id="main-content" className="page-shell">
@@ -62,6 +62,6 @@ export function ReviewWorkspacePage({
           </footer>
         </div>
       </main>
-    </>
+    </div>
   );
 }

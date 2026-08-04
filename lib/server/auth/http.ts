@@ -104,23 +104,23 @@ export function safeReturnPath(
   role: UserRole,
 ) {
   if (!candidate?.startsWith("/") || candidate.startsWith("//") || candidate.includes("\\")) {
-    return role === "employee" ? "/employee" : "/";
+    return role === "employee" ? "/employee" : "/review";
   }
   try {
     const parsed = new URL(candidate, "https://local.invalid");
     if (parsed.origin !== "https://local.invalid") {
-      return role === "employee" ? "/employee" : "/";
+      return role === "employee" ? "/employee" : "/review";
     }
-    if (role !== "employee" && parsed.pathname.startsWith("/employee")) return "/";
+    if (role !== "employee" && parsed.pathname.startsWith("/employee")) return "/review";
     if (
       ["/login", "/request-account", "/request-submitted", "/setup-password"].includes(
         parsed.pathname,
       )
     ) {
-      return role === "employee" ? "/employee" : "/";
+      return role === "employee" ? "/employee" : "/review";
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
-    return role === "employee" ? "/employee" : "/";
+    return role === "employee" ? "/employee" : "/review";
   }
 }
