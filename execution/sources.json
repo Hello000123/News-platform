@@ -1,0 +1,334 @@
+{
+  "unwire": {
+    "name": "unwire.hk",
+    "type": "rss",
+    "feed_url": "https://unwire.hk/feed/",
+    "content_in_feed": true,
+    "min_content_chars": 5000,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".entry-content"],
+      "content_remove": [".google-ad", ".google-ad-label", ".unwire-share-panel-header", ".post-footer-video-heading", "script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "pcm": {
+    "name": "PCM 電腦廣場",
+    "type": "rss",
+    "feed_url": "https://www.pcmarket.com.hk/feed/",
+    "content_in_feed": true,
+    "min_content_chars": 5000,
+    "article_selectors": {
+      "title": [".td-post-title .entry-title", "h1"],
+      "content": [".td-post-content"],
+      "content_remove": [".td-a-ad", "script", "style"],
+      "author": [".td-post-author-name a"],
+      "date": []
+    }
+  },
+  "hkepc": {
+    "name": "HKEPC Hardware",
+    "type": "atom",
+    "feed_url": "https://www.hkepc.com/feed",
+    "disabled": true,
+    "disabled_reason": "Site moved behind Cloudflare JS challenge (403 on whole site incl. feed, since ~2026-07-31). Re-enable when a headless browser/proxy is available.",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1", ".heading h1"],
+      "content": [".news .content", ".articleContent", "#articleContent", ".content"],
+      "author": [],
+      "date": []
+    }
+  },
+  "eprice": {
+    "name": "ePrice HK",
+    "type": "rss",
+    "feed_url": "https://www.eprice.com.hk/rss/rss.xml",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1.article__heading", "h1"],
+      "content": ["section.article__content", ".article__content"],
+      "author": ["span.author-profile__title[data-name=\"author\"]", ".author-profile__title"],
+      "date": ["span.author-profile__info", ".author-profile__info"]
+    }
+  },
+  "dcfever": {
+    "name": "DCFever",
+    "type": "listing",
+    "listing_url": "https://www.dcfever.com/news/index.php",
+    "link_pattern": "readnews.php?id=",
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".article_content_html", ".content_inside"],
+      "author": [],
+      "date": [".article_date", ".news_date"]
+    }
+  },
+  "ezone": {
+    "name": "ezone.hk",
+    "type": "listing",
+    "listing_url": "https://ezone.ulifestyle.com.hk/",
+    "link_pattern": "/article/",
+    "id_regex": "/article/(\\d+)/",
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".content", ".article-content", ".article_content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": ["time", ".article-date"]
+    }
+  },
+  "hk01": {
+    "name": "HK01 科技玩意",
+    "type": "listing",
+    "listing_url": "https://www.hk01.com/zone/11/%E7%A7%91%E6%8A%80%E7%8E%A9%E7%89%A9",
+    "link_pattern": "%E6%95%B8%E7%A2%BC%E7%94%9F%E6%B4%BB",
+    "id_regex": "/(\\d{6,})/",
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".article-content", ".content", "main"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": ["time"]
+    }
+  },
+  "am730": {
+    "name": "am730 科技",
+    "type": "listing",
+    "listing_url": "https://www.am730.com.hk/%E7%A7%91%E6%8A%80",
+    "link_pattern": "/\u79d1\u6280/",
+    "link_exclude": "/tag/",
+    "id_regex": "/(\\d{6,})/",
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".article-body", ".article_content", ".content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": ["time"]
+    }
+  },
+  "winandmac": {
+    "name": "WinandMac",
+    "type": "listing",
+    "listing_url": "https://www.winandmac.com/",
+    "link_pattern": "/2026/",
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".entry-content", "article", ".post-content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": ["time"]
+    }
+  },
+  "oncc": {
+    "name": "on.cc 東方日報",
+    "type": "listing",
+    "listing_url": "https://www.on.cc/hk/news/index.html",
+    "link_pattern": "/bkn/cnt/",
+    "id_regex": "(bkn-\\d+)",
+    "article_selectors": {
+      "title": ["h1", ".item h1"],
+      "content": [".lastest", "div.item"],
+      "content_remove": ["script", "style", ".related", ".taglist", ".share"],
+      "author": [],
+      "date": ["time"]
+    }
+  },
+  "qooah": {
+    "name": "Qooah",
+    "type": "rss",
+    "feed_url": "https://qooah.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".td-post-content", ".entry-content"],
+      "content_remove": [".td-a-ad", "script", "style"],
+      "author": [".td-post-author-name a"],
+      "date": []
+    }
+  },
+  "techritual": {
+    "name": "TechRitual",
+    "type": "rss",
+    "feed_url": "https://techritual.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".td-post-content", ".entry-content"],
+      "content_remove": [".td-a-ad", "script", "style"],
+      "author": [".td-post-author-name a"],
+      "date": []
+    }
+  },
+  "ithome": {
+    "name": "IT之家",
+    "type": "rss",
+    "feed_url": "https://www.ithome.com/rss/",
+    "content_in_feed": true,
+    "article_selectors": {}
+  },
+  "techcrunch": {
+    "name": "TechCrunch",
+    "type": "rss",
+    "feed_url": "https://techcrunch.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".entry-content", ".wp-block-post-content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "theverge": {
+    "name": "The Verge",
+    "type": "rss",
+    "feed_url": "https://www.theverge.com/rss/index.xml",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".duet--article--article-body-component-container"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "engadget": {
+    "name": "Engadget",
+    "type": "rss",
+    "feed_url": "https://www.engadget.com/rss.xml",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".caas-body"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "9to5mac": {
+    "name": "9to5Mac",
+    "type": "rss",
+    "feed_url": "https://9to5mac.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".entry-content", ".post-content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "9to5google": {
+    "name": "9to5Google",
+    "type": "rss",
+    "feed_url": "https://9to5google.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".post-content", ".entry-content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "androidpolice": {
+    "name": "Android Police",
+    "type": "rss",
+    "feed_url": "https://www.androidpolice.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".article__body"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "androidauthority": {
+    "name": "Android Authority",
+    "type": "rss",
+    "feed_url": "https://www.androidauthority.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["main"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "wccftech": {
+    "name": "Wccftech",
+    "type": "rss",
+    "feed_url": "https://wccftech.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["main", ".article-content"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "tomshardware": {
+    "name": "Tom's Hardware",
+    "type": "rss",
+    "feed_url": "https://www.tomshardware.com/feeds/all",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "techradar": {
+    "name": "TechRadar",
+    "type": "rss",
+    "feed_url": "https://www.techradar.com/rss",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".article__body"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "wired": {
+    "name": "WIRED",
+    "type": "rss",
+    "feed_url": "https://www.wired.com/feed/rss",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": [".article__body", "article"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "xda": {
+    "name": "XDA Developers",
+    "type": "rss",
+    "feed_url": "https://www.xda-developers.com/feed/",
+    "content_in_feed": false,
+    "article_selectors": {
+      "title": ["h1"],
+      "content": ["article", ".article__body"],
+      "content_remove": ["script", "style"],
+      "author": [],
+      "date": []
+    }
+  },
+  "arstechnica": {
+    "name": "Ars Technica",
+    "type": "rss",
+    "feed_url": "https://feeds.arstechnica.com/arstechnica/index",
+    "content_in_feed": true,
+    "article_selectors": {}
+  }
+}

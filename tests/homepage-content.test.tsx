@@ -86,19 +86,22 @@ describe("PressReady homepage view model", () => {
     expect(view.topics).toEqual(["World Desk", "Culture Desk"]);
   });
 
-  it("omits unavailable slots for partial and empty datasets", () => {
+  it("fills unavailable slots with prototype stories so every homepage module stays present", () => {
     const partial = buildHomepageView([article(0), article(1), article(2), article(3)]);
     expect(partial.lead?.article.id).toBe("article-0");
     expect(partial.related).toHaveLength(2);
-    expect(partial.featureColumns).toHaveLength(1);
-    expect(partial.featureColumns[0]).toHaveLength(1);
-    expect(partial.latest).toHaveLength(0);
+    expect(partial.featureColumns).toHaveLength(2);
+    expect(partial.featureColumns.every((column) => column.length === 3)).toBe(true);
+    expect(partial.latest).toHaveLength(6);
+    expect(partial.featureColumns.flat().some((item) => item.isPrototype)).toBe(true);
 
     const empty = buildHomepageView([]);
-    expect(empty.lead).toBeNull();
-    expect(empty.related).toEqual([]);
-    expect(empty.featureColumns).toEqual([]);
-    expect(empty.latest).toEqual([]);
+    expect(empty.lead?.article.id).toBe("prototype-community-tech");
+    expect(empty.related).toHaveLength(2);
+    expect(empty.featureColumns).toHaveLength(2);
+    expect(empty.featureColumns.every((column) => column.length === 3)).toBe(true);
+    expect(empty.latest).toHaveLength(6);
+    expect(empty.topics).toEqual(["生成式 AI", "數碼共融", "社區創新", "影響力營運"]);
   });
 
   it("prefers descriptions, falls back to body text, and extracts only body points", () => {
@@ -136,13 +139,16 @@ describe("PressReady homepage view model", () => {
 describe("NewsHomepage rendering", () => {
   afterEach(cleanup);
 
-  it("renders PressReady branding, accessible article links, and the empty state", () => {
+  it("renders PressReady branding and the complete prototype homepage when there are no live articles", () => {
     render(<NewsHomepage view={buildHomepageView([])} />);
 
     expect(screen.getByText("PressReady", { selector: ".news-v1-brand-name" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("暫時沒有已核准報道");
+    expect(screen.getByText("當公共 AI 走進社區，誰來定義真正需要解決的問題？")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "精選報道" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "最新短訊" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "編輯工作區" }).getAttribute("href")).toBe("/review");
-    expect(screen.queryByRole("link", { name: /Approved story/u })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("link", { name: "當公共 AI 走進社區，誰來定義真正需要解決的問題？" })).toBeNull();
   });
 
   it("renders live article titles as links in the editorial slots", () => {

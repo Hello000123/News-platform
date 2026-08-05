@@ -2997,6 +2997,7 @@ footer p {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 20px;
 }
 
@@ -3016,6 +3017,19 @@ footer p {
 
 .pipeline-model .text-input {
   min-width: 180px;
+}
+
+.pipeline-auto-rewrite {
+  display: grid;
+  gap: 5px;
+}
+
+.pipeline-auto-rewrite p {
+  max-width: 300px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .pipeline-layout {
@@ -3421,4 +3435,3 @@ footer p {
     justify-content: center;
   }
 }
-

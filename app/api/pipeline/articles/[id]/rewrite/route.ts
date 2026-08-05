@@ -3,19 +3,90 @@ import { getDatabase } from "@/lib/server/auth/database";
 import { requireApiSession } from "@/lib/server/auth/guards";
 import { recordAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 import { AppError } from "@/lib/server/errors";
-import { getPipelineArticleById, setPipelineArticleRewritten } from "@/lib/server/feeds/repository";
+import {
+  getPipelineArticleById,
+  getPipelineArticlesByIds,
+  markPipelineArticlesMerged,
+  setPipelineArticleRewritten,
+} from "@/lib/server/feeds/repository";
 import { loadArticleContent } from "@/lib/server/feeds/scraper";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
 import {
   rewriteContextSchema,
+  sourceSnapshotSchema,
   type RewriteContext,
-} from "@/lib/shared/contracts";import { pipelineRewriteInputSchema } from "@/lib/shared/feeds-contracts";
+} from "@/lib/shared/contracts";
+import {
+  pipelineRewriteInputSchema,
+  type PipelineArticleView,
+} from "@/lib/shared/feeds-contracts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
+}
+
+const MAX_SUPPORTING_REPORT_CHARS = 50_000;
+const MAX_SINGLE_SUPPORTING_REPORT_CHARS = 12_000;
+
+function sourceFromSavedScrape(article: Pick<PipelineArticleView, "title" | "url" | "sourceText">) {
+  const text = article.sourceText?.trim();
+  if (!text) return null;
+  return sourceSnapshotSchema.parse({
+    primaryText: text.slice(0, 50_000),
+    userDraft: "",
+    sourceUrl: article.url,
+    linkedTitle: article.title,
+    imageContext: [],
+  });
+}
+
+async function sourceForArticle(article: PipelineArticleView) {
+  return sourceFromSavedScrape(article) ?? loadArticleContent(article.url);
+}
+
+function supportingReportText(article: PipelineArticleView, sourceText: string, index: number) {
+  return [
+    `RELATED REPORT ${index} — ${article.feedName}`,
+    `Headline: ${article.title}`,
+    `Source URL: ${article.url}`,
+    sourceText.slice(0, MAX_SINGLE_SUPPORTING_REPORT_CHARS),
+  ].join("\n");
+}
+
+async function sourceWithRelatedReports(
+  canonicalArticle: PipelineArticleView,
+  relatedArticles: readonly PipelineArticleView[],
+) {
+  const primary = await sourceForArticle(canonicalArticle);
+  if (relatedArticles.length === 0) return primary;
+
+  const relatedSnapshots = await Promise.all(
+    relatedArticles.map(async (article) => {
+      try {
+        return { article, source: await sourceForArticle(article) };
+      } catch {
+        // Saved scraper content normally makes this unnecessary. If a single
+        // source URL can no longer be retrieved, retain the other reports so a
+        // temporary upstream outage does not block the whole top-five batch.
+        return null;
+      }
+    }),
+  );
+  const supportingReports = relatedSnapshots
+    .flatMap((item, index) =>
+      item ? [supportingReportText(item.article, item.source.primaryText, index + 1)] : [],
+    )
+    .join("\n\n---\n\n")
+    .slice(0, MAX_SUPPORTING_REPORT_CHARS);
+  const linkedText = [primary.linkedText, supportingReports].filter(Boolean).join("\n\n---\n\n");
+
+  return sourceSnapshotSchema.parse({
+    ...primary,
+    ...(linkedText ? { linkedText } : {}),
+  });
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -28,15 +99,38 @@ export async function POST(request: Request, context: RouteContext) {
     if (!article) {
       throw new AppError("ARTICLE_NOT_FOUND", "The article was not found.", 404);
     }
+    if (article.mergedIntoArticleId) {
+      throw new AppError(
+        "ARTICLE_ALREADY_MERGED",
+        "This duplicate report has already been combined into another pipeline story.",
+        409,
+      );
+    }
+
+    const requestedRelatedIds = input.relatedArticleIds.filter((relatedId) => relatedId !== article.id);
+    const relatedArticles = (await getPipelineArticlesByIds(database, requestedRelatedIds)).filter(
+      (relatedArticle) =>
+        relatedArticle.status === "new" &&
+        !relatedArticle.mergedIntoArticleId &&
+        relatedArticle.id !== article.id,
+    );
     await recordAgentRequestAttempt(session.user.id, "rewrite");
 
-    const source = await loadArticleContent(article.url);
+    const source = await sourceWithRelatedReports(article, relatedArticles);
     const rewriteContext: RewriteContext = rewriteContextSchema.parse({
       history: [],
       refinement: {
         lengthOption: input.lengthOption ?? null,
-        instruction: input.instruction,
+        instruction: [
+          input.instruction,
+          relatedArticles.length > 0
+            ? "This is a combined news brief. Use the labelled related reports as corroborating source material, retain only facts that are explicit and consistent across the available sources, and do not repeat the same detail or turn supporting-report quotations into new direct quotations."
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       },
+      outputLanguage: input.outputLanguage ?? "source",
     });
     const rewrite = await rewriteWithFeedback(
       source,
@@ -45,7 +139,19 @@ export async function POST(request: Request, context: RouteContext) {
       rewriteContext,
       input.model,
     );
-    await setPipelineArticleRewritten(database, article.id, rewrite.finalText);
+    const rewritten = await setPipelineArticleRewritten(database, article.id, rewrite.finalText);
+    if (!rewritten) {
+      throw new AppError(
+        "ARTICLE_REWRITE_CONFLICT",
+        "This article changed while it was being rewritten. Refresh the pipeline and try again.",
+        409,
+      );
+    }
+    await markPipelineArticlesMerged(
+      database,
+      article.id,
+      relatedArticles.map((relatedArticle) => relatedArticle.id),
+    );
     const updatedArticle = await getPipelineArticleById(database, article.id);
 
     return jsonResponse({

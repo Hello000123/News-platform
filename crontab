@@ -1,0 +1,1 @@
+*/30 * * * * root cd /app && python -u execution/run_all.py >> /var/log/scraper.log 2>&1

@@ -12,6 +12,11 @@ coverage/
 *.tmp
 *.temp
 
+# Scraper runtime state and exported article batches
+data/
+.tmp/
+__pycache__/
+
 # Calibration datasets and reports are intentionally versioned
 !tests/chinese-review-calibration/*.csv
 !tests/chinese-review-calibration/*.jsonl

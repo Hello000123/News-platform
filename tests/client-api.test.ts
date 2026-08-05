@@ -6,7 +6,12 @@ import {
   requestReview,
   requestRewrite,
 } from "@/lib/client/api";
+import {
+  SCRAPED_IMPORT_SAFE_BYTES,
+  importScrapedArticles,
+} from "@/lib/client/feeds-api";
 import type { RewriteHistoryEntryInput, SourceSnapshot } from "@/lib/shared/contracts";
+import type { ScrapedArticleInput } from "@/lib/shared/feeds-contracts";
 import { highReview } from "@/tests/fixtures/reviews";
 
 const source: SourceSnapshot = {
@@ -276,5 +281,39 @@ describe("client API response validation", () => {
       instruction: "Latest instruction",
     });
     expect(history).toEqual(originalHistory);
+  });
+
+  it("splits large scraper exports into request-safe import batches", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ imported: 1, skipped: 0, sources: 1 }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const articles: ScrapedArticleInput[] = [0, 1].map((index) => ({
+      source: "unwire",
+      title: `Saved article ${index}`,
+      url: `https://unwire.example/articles/${index}`,
+      author: null,
+      publishedAt: null,
+      contentText: "中".repeat(40_000),
+      imageUrl: null,
+    }));
+
+    await expect(importScrapedArticles(articles)).resolves.toEqual({
+      imported: 2,
+      skipped: 0,
+      sources: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [endpoint, init] of fetchMock.mock.calls as Array<[string, RequestInit]>) {
+      expect(endpoint).toBe("/api/pipeline/import-scraped");
+      expect(new TextEncoder().encode(String(init.body)).byteLength).toBeLessThanOrEqual(
+        SCRAPED_IMPORT_SAFE_BYTES,
+      );
+    }
   });
 });

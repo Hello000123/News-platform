@@ -187,6 +187,17 @@ export const reviewRequestSchema = editorialInputSchema;
 
 export const rewriteLengthOptionSchema = z.enum(["concise", "more_detailed"]);
 
+/**
+ * Most editor workflows preserve the source language. The news pipeline can
+ * explicitly request a Traditional Chinese edition while keeping source facts
+ * and direct quotations traceable for human review.
+ */
+export const rewriteOutputLanguageSchema = z.enum([
+  "source",
+  "traditional_chinese",
+]);
+export type RewriteOutputLanguage = z.infer<typeof rewriteOutputLanguageSchema>;
+
 export const rewriteInstructionSchema = z
   .string()
   .trim()
@@ -233,6 +244,7 @@ export const rewriteContextSchema = z
       lengthOption: null,
       instruction: "",
     }),
+    outputLanguage: rewriteOutputLanguageSchema.optional(),
   })
   .strict();
 

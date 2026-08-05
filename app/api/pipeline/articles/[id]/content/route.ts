@@ -20,6 +20,9 @@ export async function GET(request: Request, context: RouteContext) {
     if (!article) {
       throw new AppError("ARTICLE_NOT_FOUND", "The article was not found.", 404);
     }
+    if (article.sourceText?.trim()) {
+      return jsonResponse({ article, content: article.sourceText });
+    }
     const source = await loadArticleContent(article.url);
     const content = [
       source.linkedTitle ? `[Article title]\n${source.linkedTitle}` : "",
