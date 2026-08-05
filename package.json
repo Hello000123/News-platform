@@ -15,6 +15,7 @@
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply pressready-auth --local",
     "db:migrate:remote": "wrangler d1 migrations apply pressready-auth --remote",
+    "scrape:news": "python3 execution/run_all.py --no-upload",
     "create-employee": "node scripts/create-employee.mjs --local",
     "create-employee:local": "node scripts/create-employee.mjs --local",
     "create-employee:remote": "node scripts/create-employee.mjs --remote",

@@ -134,6 +134,29 @@ address, and allow Node.js through the Windows firewall when prompted.
 
 The browser sends only the submitted text, public source URL, and allowlisted model ID to the local Next.js backend. This workflow is intentionally text-only and does not accept picture uploads or user-supplied image captions/OCR. The backend retrieves public URL content, derives the rewrite language from the primary article, and calls only the selected model's provider with its matching server-only secret key. Provider keys are never included in browser source, browser requests, API error bodies, or application logs.
 
+## Copied news scraper and publishing workflow
+
+The 26-source news scraper is included in `execution/`, with its source definitions in
+`execution/sources.json`. Install its Python requirements once, then run a local batch
+without uploading to R2:
+
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
+    npm run scrape:news
+
+Each run writes `.tmp/YYYY-MM-DD/combined.json`. Sign in to the website, open
+`/pipeline`, and choose **Import scraper JSON** to upload that file. The application
+stores each article's saved text and optional image in the same pipeline used by the
+site: **import → rewrite with AI → human approval → public homepage**. Imported source
+feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
+fetch their placeholder URLs.
+
+The copied scraper can also run on its existing 30-minute Docker schedule with
+`docker compose up -d --build`. Its local output is still imported through the Pipeline
+screen; configure the optional R2 variables in `.env` only if you also want a remote
+copy of the JSON batches.
+
 ## Production build
 
     npm run build

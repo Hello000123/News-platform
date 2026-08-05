@@ -6,6 +6,7 @@ import {
 } from "@/components/news/homepage-content";
 import { getDatabase } from "@/lib/server/auth/database";
 import { listPublicArticles } from "@/lib/server/feeds/repository";
+import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,13 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const articles = await listPublicArticles(getDatabase(), 15);
+  let articles: PipelineArticleView[] = [];
+
+  try {
+    articles = await listPublicArticles(getDatabase(), 15);
+  } catch {
+    // The public prototype remains usable before its D1 binding is configured.
+  }
+
   return <NewsHomepage view={buildHomepageView(articles)} />;
 }

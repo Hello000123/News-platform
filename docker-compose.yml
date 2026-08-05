@@ -1,0 +1,19 @@
+services:
+  scraper:
+    build: .
+    container_name: news-scraper
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Hong_Kong
+    volumes:
+      - scraper-data:/app/data
+      - ./execution:/app/execution:ro
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  scraper-data:

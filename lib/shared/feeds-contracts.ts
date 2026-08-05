@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   MAX_REWRITE_INSTRUCTION_CHARS,
   rewriteLengthOptionSchema,
+  rewriteOutputLanguageSchema,
   rewriteValidationSchema,
   selectableModelSchema,
 } from "@/lib/shared/contracts";
@@ -25,6 +26,7 @@ export const PIPELINE_ARTICLE_URL_MAX_LENGTH = 2_048;
 export const PIPELINE_ARTICLE_DESCRIPTION_MAX_LENGTH = 20_000;
 export const PIPELINE_ARTICLE_AUTHOR_MAX_LENGTH = 500;
 export const PIPELINE_ARTICLE_REWRITTEN_TEXT_MAX_LENGTH = 50_000;
+export const SCRAPED_ARTICLE_CONTENT_MAX_LENGTH = 50_000;
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 
@@ -74,6 +76,39 @@ export const feedUpdateSchema = z
 
 export type FeedUpdateInput = z.infer<typeof feedUpdateSchema>;
 
+const scrapedOptionalText = (maximum: number) =>
+  z
+    .string()
+    .trim()
+    .max(maximum)
+    .nullable()
+    .optional()
+    .transform((value) => value || null);
+
+export const scrapedArticleInputSchema = z
+  .object({
+    source: requiredSingleLine("Scraper source", FEED_NAME_MAX_LENGTH),
+    title: requiredSingleLine("Article title", PIPELINE_ARTICLE_TITLE_MAX_LENGTH),
+    url: feedUrlSchema,
+    author: scrapedOptionalText(PIPELINE_ARTICLE_AUTHOR_MAX_LENGTH),
+    publishedAt: scrapedOptionalText(100),
+    contentText: z
+      .string()
+      .max(SCRAPED_ARTICLE_CONTENT_MAX_LENGTH + 1_000)
+      .transform((value) => value.trim())
+      .pipe(z.string().min(1, "Scraped article text is required.").max(SCRAPED_ARTICLE_CONTENT_MAX_LENGTH)),
+    imageUrl: scrapedOptionalText(FEED_URL_MAX_LENGTH),
+  })
+  .strict();
+
+export type ScrapedArticleInput = z.infer<typeof scrapedArticleInputSchema>;
+
+export const scrapedArticleImportRequestSchema = z
+  .object({
+    articles: z.array(scrapedArticleInputSchema).min(1).max(100),
+  })
+  .strict();
+
 export const feedViewSchema = z
   .object({
     id: z.string(),
@@ -104,6 +139,9 @@ export const pipelineArticleViewSchema = z
     pubDate: z.number().nullable(),
     status: pipelineArticleStatusSchema,
     rewrittenText: z.string().nullable(),
+    sourceText: z.string().nullable().optional(),
+    imageUrl: z.string().nullable().optional(),
+    mergedIntoArticleId: z.string().nullable().optional(),
     createdAt: z.number(),
     updatedAt: z.number(),
   })
@@ -154,6 +192,11 @@ export const pipelineRewriteInputSchema = z
   .object({
     model: selectableModelSchema.optional(),
     lengthOption: rewriteLengthOptionSchema.nullable().optional(),
+    outputLanguage: rewriteOutputLanguageSchema.optional(),
+    relatedArticleIds: z
+      .array(z.string().trim().min(1).max(128))
+      .max(49, "A rewrite can combine up to 49 related reports.")
+      .default([]),
     instruction: z
       .string()
       .trim()
@@ -166,6 +209,25 @@ export const pipelineRewriteInputSchema = z
   .strict();
 
 export type PipelineRewriteInput = z.input<typeof pipelineRewriteInputSchema>;
+
+export const popularPipelineStorySchema = z
+  .object({
+    articleId: z.string(),
+    title: z.string(),
+    sourceCount: z.number().int().min(1),
+    reportCount: z.number().int().min(1),
+    publishedAt: z.number().nullable(),
+    relatedArticleIds: z.array(z.string()).min(1).max(200),
+  })
+  .strict();
+
+export type PopularPipelineStory = z.infer<typeof popularPipelineStorySchema>;
+
+export const popularPipelineStoriesResponseSchema = z
+  .object({
+    stories: z.array(popularPipelineStorySchema).max(5),
+  })
+  .strict();
 
 export const pipelineRewriteResponseSchema = z
   .object({

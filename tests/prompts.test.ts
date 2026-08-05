@@ -11,6 +11,7 @@ import {
   extractVerbatimMixedLanguageTerms,
   extractVerbatimSourceScriptNames,
   FORMAT_CORRECTION_SYSTEM_PROMPT,
+  preservesRequestedOutputLanguage,
   preservesRequiredOutputLanguage,
   QUOTATION_CORRECTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
@@ -313,5 +314,30 @@ describe("agent prompts", () => {
     ).toBe(false);
     expect(preservesRequiredOutputLanguage("Breaking", "突發\n\n消息已公布。")).toBe(false);
     expect(preservesRequiredOutputLanguage("「下雨」", "Rain\n\nThe report says rain.")).toBe(false);
+  });
+
+  it("allows the pipeline to explicitly request a Traditional Chinese edition", () => {
+    const englishDraft = "Officials said the new service will open on 16 July.";
+    const prompt = createRewriteUserPrompt(englishDraft, null, {
+      history: [],
+      refinement: { lengthOption: null, instruction: "" },
+      outputLanguage: "traditional_chinese",
+    });
+
+    expect(prompt).toContain("LANGUAGE LOCK: Traditional Chinese");
+    expect(
+      preservesRequestedOutputLanguage(
+        englishDraft,
+        "新服務將於7月16日啟用\n\n官員表示，新服務將於7月16日啟用。",
+        "traditional_chinese",
+      ),
+    ).toBe(true);
+    expect(
+      preservesRequestedOutputLanguage(
+        englishDraft,
+        "Service opens\n\nOfficials said the new service will open on 16 July.",
+        "traditional_chinese",
+      ),
+    ).toBe(false);
   });
 });

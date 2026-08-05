@@ -5,6 +5,7 @@ import {
   feedUpdateSchema,
   pipelineRewriteInputSchema,
   pipelineStatusUpdateSchema,
+  scrapedArticleImportRequestSchema,
 } from "@/lib/shared/feeds-contracts";
 
 describe("feeds contracts", () => {
@@ -45,10 +46,17 @@ describe("feeds contracts", () => {
     ).toBe("paused");
   });
 
-  it("defaults pipeline rewrite instruction to empty and accepts length options", () => {
-    const input = pipelineRewriteInputSchema.parse({ lengthOption: "concise" });
+  it("defaults pipeline rewrite instruction and accepts multi-source Chinese options", () => {
+    const input = pipelineRewriteInputSchema.parse({
+      lengthOption: "concise",
+      outputLanguage: "traditional_chinese",
+      relatedArticleIds: ["article-a", "article-b"],
+    });
     expect(input.instruction).toBe("");
     expect(input.lengthOption).toBe("concise");
+    expect(input.outputLanguage).toBe("traditional_chinese");
+    expect(input.relatedArticleIds).toEqual(["article-a", "article-b"]);
+    expect(pipelineRewriteInputSchema.parse({}).relatedArticleIds).toEqual([]);
   });
 
   it("validates pipeline status transitions", () => {
@@ -58,5 +66,22 @@ describe("feeds contracts", () => {
     expect(() =>
       pipelineStatusUpdateSchema.parse({ status: "rewritten" }),
     ).toThrow();
+  });
+
+  it("accepts saved content in the copied scraper export format", () => {
+    const input = scrapedArticleImportRequestSchema.parse({
+      articles: [
+        {
+          source: "unwire",
+          title: "A saved article",
+          url: "https://unwire.example/news/saved-article",
+          author: "News Desk",
+          publishedAt: "2026-08-03T06:00:00Z",
+          contentText: "The text saved by the scraper.",
+          imageUrl: "https://unwire.example/images/article.jpg",
+        },
+      ],
+    });
+    expect(input.articles[0]?.contentText).toBe("The text saved by the scraper.");
   });
 });

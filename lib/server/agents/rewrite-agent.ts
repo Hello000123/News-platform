@@ -5,14 +5,14 @@ import {
   createRewriteUserPrompt,
   createUnchangedRewriteCorrectionPrompt,
   CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT,
-  determineRequiredOutputLanguage,
   extractComparableNumericValues,
   extractVerbatimSourceScriptNames,
   FORMAT_CORRECTION_SYSTEM_PROMPT,
   extractVerbatimMixedLanguageTerms,
-  preservesRequiredOutputLanguage,
+  preservesRequestedOutputLanguage,
   QUOTATION_CORRECTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
+  requiredOutputLanguageFor,
   SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
 } from "@/lib/server/agents/prompts";
 import {
@@ -214,10 +214,10 @@ function validateSafeCandidate(
     );
   }
 
-  if (!preservesRequiredOutputLanguage(source.primaryText, candidate)) {
+  if (!preservesRequestedOutputLanguage(source.primaryText, candidate, context.outputLanguage)) {
     throw new AppError(
       "REWRITE_LANGUAGE_MISMATCH",
-      `The Rewrite Agent did not preserve the source language (${determineRequiredOutputLanguage(source.primaryText)}). Please retry.`,
+      `The Rewrite Agent did not produce the required language (${requiredOutputLanguageFor(source.primaryText, context.outputLanguage)}). Please retry.`,
       422,
       { publicDetails: { retryable: true } },
     );
@@ -253,7 +253,7 @@ function validateSafeCandidate(
   const requiredNumericValues = extractComparableNumericValues(source.primaryText);
   const outputNumericValues = new Set([
     ...extractComparableNumericValues(candidate),
-    ...(determineRequiredOutputLanguage(source.primaryText) === "English"
+    ...(requiredOutputLanguageFor(source.primaryText, context.outputLanguage) === "English"
       ? extractEnglishSmallNumberValues(candidate)
       : []),
   ]);
@@ -621,6 +621,7 @@ export async function runRewriteAgent(
           firstCandidate,
           firstIssues,
           source,
+          context.outputLanguage,
         );
 
   let secondCandidate = "";

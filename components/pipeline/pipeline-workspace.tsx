@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import {
   FeedRequestError,
   getPipelineArticleContent,
+  importScrapedArticles,
   listPipelineArticles,
+  listPopularPipelineStories,
   rewritePipelineArticle,
   updatePipelineArticleStatus,
 } from "@/lib/client/feeds-api";
 import type {
   PipelineArticleStatus,
   PipelineArticleView,
+  ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
 import type { SelectableModelId } from "@/lib/shared/models";
 
@@ -34,7 +37,40 @@ function formattedDate(timestamp: number | null) {
   }).format(new Date(timestamp * 1_000));
 }
 
-export function PipelineWorkspace() {
+function optionalText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function scrapedArticleInput(value: unknown, index: number): ScrapedArticleInput {
+  if (!value || typeof value !== "object") {
+    throw new Error(`Article ${index + 1} is not a valid scraper record.`);
+  }
+
+  const record = value as Record<string, unknown>;
+  const source = optionalText(record.source);
+  const title = optionalText(record.title);
+  const url = optionalText(record.url);
+  const contentText = optionalText(record.content_text)?.slice(0, 50_000);
+  if (!source || !title || !url || !contentText) {
+    throw new Error(`Article ${index + 1} is missing source, title, URL, or scraped text.`);
+  }
+
+  return {
+    source,
+    title,
+    url,
+    author: optionalText(record.author),
+    publishedAt: optionalText(record.published_at),
+    contentText,
+    imageUrl: optionalText(record.image_url),
+  };
+}
+
+interface PipelineWorkspaceProps {
+  initialModel: SelectableModelId;
+}
+
+export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   const [articles, setArticles] = useState<PipelineArticleView[]>([]);
   const [filter, setFilter] = useState<Filter>("new");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -44,11 +80,15 @@ export function PipelineWorkspace() {
   const [loading, setLoading] = useState(true);
   const [contentBusy, setContentBusy] = useState(false);
   const [rewriteBusy, setRewriteBusy] = useState(false);
-  const [model, setModel] = useState<SelectableModelId>("grok-4.5");
+  const [popularRewriteBusy, setPopularRewriteBusy] = useState(false);
+  const [popularRewriteProgress, setPopularRewriteProgress] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [model, setModel] = useState<SelectableModelId>(initialModel);
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const outputRef = useRef<HTMLTextAreaElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedArticle = articles.find((article) => article.id === selectedId) ?? null;
 
@@ -124,8 +164,38 @@ export function PipelineWorkspace() {
     setFilter(value);
   }
 
+  async function handleScrapedImport(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || importBusy) return;
+
+    setImportBusy(true);
+    setErrorMessage("");
+    setNotice(null);
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!Array.isArray(parsed)) {
+        throw new Error("Choose the scraper's combined.json export.");
+      }
+      const result = await importScrapedArticles(
+        parsed.map((item, index) => scrapedArticleInput(item, index)),
+      );
+      setNotice(
+        `Imported ${result.imported} scraped article${result.imported === 1 ? "" : "s"}` +
+          (result.skipped ? `; ${result.skipped} already existed.` : "."),
+      );
+      setLoading(true);
+      setFilter("new");
+      setRefreshVersion((current) => current + 1);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "The scraper export could not be imported.");
+    } finally {
+      event.target.value = "";
+      setImportBusy(false);
+    }
+  }
+
   async function handleRewrite() {
-    if (!selectedArticle || rewriteBusy) return;
+    if (!selectedArticle || rewriteBusy || popularRewriteBusy) return;
     setRewriteBusy(true);
     setErrorMessage("");
     setNotice(null);
@@ -151,6 +221,71 @@ export function PipelineWorkspace() {
       );
     } finally {
       setRewriteBusy(false);
+    }
+  }
+
+  async function handlePopularRewrite() {
+    if (popularRewriteBusy || rewriteBusy || importBusy) return;
+
+    setPopularRewriteBusy(true);
+    setPopularRewriteProgress(null);
+    setErrorMessage("");
+    setNotice(null);
+    try {
+      const { stories } = await listPopularPipelineStories();
+      if (stories.length === 0) {
+        setNotice(
+          "There are no saved scraper reports ready yet. Import the scraper's combined.json export, then run the top-five batch.",
+        );
+        return;
+      }
+
+      let rewrittenCount = 0;
+      let mergedCount = 0;
+      const failedTitles: string[] = [];
+      for (const [index, story] of stories.entries()) {
+        setPopularRewriteProgress(`Rewriting ${index + 1}/${stories.length}: ${story.title}`);
+        try {
+          await rewritePipelineArticle(story.articleId, {
+            model,
+            outputLanguage: "traditional_chinese",
+            relatedArticleIds: story.relatedArticleIds,
+            instruction:
+              "Create one clear Traditional Chinese news report for human editorial review. Use only supported, non-conflicting facts from the clustered reports.",
+          });
+          rewrittenCount += 1;
+          mergedCount += Math.max(story.reportCount - 1, 0);
+        } catch (error) {
+          failedTitles.push(
+            error instanceof FeedRequestError ? `${story.title}: ${error.message}` : story.title,
+          );
+        }
+      }
+
+      setLoading(true);
+      setFilter("rewritten");
+      setRefreshVersion((current) => current + 1);
+      if (rewrittenCount > 0) {
+        setNotice(
+          `Rewrote ${rewrittenCount} of ${stories.length} popular story group${stories.length === 1 ? "" : "s"} in Traditional Chinese` +
+            (mergedCount ? ` and combined ${mergedCount} duplicate report${mergedCount === 1 ? "" : "s"}` : "") +
+            ". Review each draft before approval.",
+        );
+      }
+      if (failedTitles.length > 0) {
+        setErrorMessage(
+          `Could not rewrite ${failedTitles.length} story group${failedTitles.length === 1 ? "" : "s"}: ${failedTitles.join(" · ")}`,
+        );
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof FeedRequestError
+          ? error.message
+          : "The popular-story batch could not be prepared.",
+      );
+    } finally {
+      setPopularRewriteProgress(null);
+      setPopularRewriteBusy(false);
     }
   }
 
@@ -204,6 +339,38 @@ export function PipelineWorkspace() {
             </button>
           ))}
         </div>
+        <div className="pipeline-import">
+          <input
+            ref={importInputRef}
+            className="sr-only"
+            id="scraped-news-import"
+            type="file"
+            accept="application/json,.json"
+            onChange={handleScrapedImport}
+            disabled={importBusy || popularRewriteBusy}
+          />
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importBusy || popularRewriteBusy}
+          >
+            {importBusy ? "Importing scraper export…" : "Import scraper JSON"}
+          </button>
+        </div>
+        <div className="pipeline-auto-rewrite">
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={handlePopularRewrite}
+            disabled={popularRewriteBusy || rewriteBusy || importBusy}
+          >
+            {popularRewriteBusy ? "Rewriting top stories…" : "Rewrite top 5 in Chinese"}
+          </button>
+          <p>
+            Groups related reports, prioritises independent source coverage, and leaves all drafts for human approval.
+          </p>
+        </div>
         <div className="pipeline-model">
           <label className="input-label" htmlFor="pipeline-model">
             Model
@@ -213,7 +380,7 @@ export function PipelineWorkspace() {
             className="text-input"
             value={model}
             onChange={(event) => setModel(event.target.value as SelectableModelId)}
-            disabled={rewriteBusy}
+            disabled={rewriteBusy || popularRewriteBusy}
           >
             <option value="grok-4.5">Grok 4.5</option>
             <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
@@ -233,6 +400,12 @@ export function PipelineWorkspace() {
         </div>
       ) : null}
 
+      {popularRewriteProgress ? (
+        <div className="auth-alert auth-alert-success" role="status">
+          {popularRewriteProgress}
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="loading-panel" role="status">
           <span className="spinner spinner-dark" aria-hidden="true" />
@@ -249,8 +422,8 @@ export function PipelineWorkspace() {
             No {filter === "all" ? "" : `${filter} `}articles
           </strong>
           <p>
-            Articles fetched from configured feeds will appear here. Add feeds in
-            the Admin Panel or wait for the next scheduled fetch.
+            Import the scraper&apos;s <code>combined.json</code> export, or add a feed in
+            the Admin Panel and wait for the next scheduled fetch.
           </p>
         </div>
       ) : null}
@@ -303,7 +476,7 @@ export function PipelineWorkspace() {
                   <span className="spinner spinner-dark" aria-hidden="true" />
                   <div>
                     <strong>Loading article content</strong>
-                    <p>Fetching the source page.</p>
+                    <p>Loading the saved scraper content.</p>
                   </div>
                 </div>
               ) : content ? (
@@ -326,7 +499,7 @@ export function PipelineWorkspace() {
                   className="button button-primary"
                   type="button"
                   onClick={handleRewrite}
-                  disabled={rewriteBusy || contentBusy || !content}
+                  disabled={rewriteBusy || popularRewriteBusy || contentBusy || !content}
                 >
                   {rewriteBusy ? "Rewriting…" : "Rewrite with AI"}
                 </button>
@@ -336,7 +509,7 @@ export function PipelineWorkspace() {
                       className="button button-secondary"
                       type="button"
                       onClick={handleCopy}
-                      disabled={rewriteBusy}
+                      disabled={rewriteBusy || popularRewriteBusy}
                     >
                       Copy to Clipboard
                     </button>
@@ -344,7 +517,7 @@ export function PipelineWorkspace() {
                       className="button button-quiet"
                       type="button"
                       onClick={() => handleStatusChange("approved")}
-                      disabled={rewriteBusy}
+                      disabled={rewriteBusy || popularRewriteBusy}
                     >
                       Approve and mark done
                     </button>
@@ -352,7 +525,7 @@ export function PipelineWorkspace() {
                       className="button button-danger"
                       type="button"
                       onClick={() => handleStatusChange("discarded")}
-                      disabled={rewriteBusy}
+                      disabled={rewriteBusy || popularRewriteBusy}
                     >
                       Discard
                     </button>

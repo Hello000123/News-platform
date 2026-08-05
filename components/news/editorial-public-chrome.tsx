@@ -33,6 +33,7 @@ export function EditorialPublicHeader({
           <ul>
             <li><Link href="/#news-v1-features">精選報道</Link></li>
             <li><Link href="/#news-v1-latest">最新短訊</Link></li>
+            <li><Link href="/pipeline">News Pipeline</Link></li>
             <li><Link href="/review">編輯工作區</Link></li>
           </ul>
         </nav>

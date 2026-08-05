@@ -1,4 +1,5 @@
 import { csrfHeaders } from "@/lib/client/auth-api";
+import { MAX_REQUEST_BYTES } from "@/lib/shared/contracts";
 import type {
   FeedFetchResult,
   FeedInput,
@@ -7,7 +8,11 @@ import type {
   PipelineArticleStatus,
   PipelineArticleView,
   PipelineRewriteInput,
+  PopularPipelineStory,
+  ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
+
+export const SCRAPED_IMPORT_SAFE_BYTES = MAX_REQUEST_BYTES - 8_192;
 
 export class FeedRequestError extends Error {
   constructor(
@@ -75,6 +80,39 @@ function postJson<T>(endpoint: string, body: unknown, includeCsrf = false) {
   });
 }
 
+function jsonByteLength(value: unknown) {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function scraperImportBatches(articles: readonly ScrapedArticleInput[]) {
+  const batches: ScrapedArticleInput[][] = [];
+  let current: ScrapedArticleInput[] = [];
+
+  for (const article of articles) {
+    const oneArticlePayload = { articles: [article] };
+    if (jsonByteLength(oneArticlePayload) > SCRAPED_IMPORT_SAFE_BYTES) {
+      throw new FeedRequestError(
+        "SCRAPED_ARTICLE_TOO_LARGE",
+        "One scraped article is too large to import. Shorten its saved text and try again.",
+      );
+    }
+
+    const next = [...current, article];
+    if (
+      current.length > 0 &&
+      (next.length > 100 || jsonByteLength({ articles: next }) > SCRAPED_IMPORT_SAFE_BYTES)
+    ) {
+      batches.push(current);
+      current = [article];
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
 export function listFeeds() {
   return requestJson<{ feeds: FeedView[] }>("/api/feeds", { method: "GET" });
 }
@@ -131,6 +169,31 @@ export function getPipelineArticleContent(id: string) {
     `/api/pipeline/articles/${encodeURIComponent(id)}/content`,
     { method: "GET" },
   );
+}
+
+export function listPopularPipelineStories() {
+  return requestJson<{ stories: PopularPipelineStory[] }>("/api/pipeline/popular", {
+    method: "GET",
+  });
+}
+
+export async function importScrapedArticles(articles: ScrapedArticleInput[]) {
+  let imported = 0;
+  let skipped = 0;
+  for (const batch of scraperImportBatches(articles)) {
+    const result = await postJson<{ imported: number; skipped: number; sources: number }>(
+      "/api/pipeline/import-scraped",
+      { articles: batch },
+      true,
+    );
+    imported += result.imported;
+    skipped += result.skipped;
+  }
+  return {
+    imported,
+    skipped,
+    sources: new Set(articles.map((article) => article.source)).size,
+  };
 }
 
 export function rewritePipelineArticle(id: string, input: PipelineRewriteInput = {}) {

@@ -10,10 +10,13 @@ import {
   getFeedById,
   getPipelineArticleById,
   getPublicArticleById,
+  importScrapedArticles,
   insertPipelineArticles,
   listFeeds,
+  listPopularPipelineStories,
   listPipelineArticles,
   listPublicArticles,
+  markPipelineArticlesMerged,
   markFeedFetchResult,
   setPipelineArticleRewritten,
   updateFeed,
@@ -65,6 +68,8 @@ describe("feeds repository", () => {
     for (const migration of [
       "0001_authentication.sql",
       "0006_feeds_pipeline.sql",
+      "0007_scraped_article_content.sql",
+      "0008_pipeline_article_merges.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);
@@ -219,6 +224,129 @@ describe("feeds repository", () => {
     expect(await getPublicArticleById(database, rewritten!.id)).toBeNull();
     expect(await getPublicArticleById(database, fresh!.id)).toBeNull();
   });
+
+  it("imports saved scraper content into the rewrite pipeline without re-scraping", async () => {
+    database = await setup();
+    const scraped = {
+      source: "unwire",
+      title: "A scraped technology story",
+      url: "https://unwire.example/news/scraped-story",
+      author: "News Desk",
+      publishedAt: "2026-08-03T06:00:00Z",
+      contentText: "The full article text captured by the external scraper.",
+      imageUrl: "https://unwire.example/images/scraped-story.jpg",
+    };
+
+    expect(await importScrapedArticles(database, [scraped], "emp-1")).toEqual({
+      imported: 1,
+      skipped: 0,
+      sources: 1,
+    });
+
+    const article = (await listPipelineArticles(database))[0];
+    expect(article).toMatchObject({
+      title: scraped.title,
+      status: "new",
+      sourceText: scraped.contentText,
+      imageUrl: scraped.imageUrl,
+    });
+
+    const scraperFeed = (await listFeeds(database)).find((feed) => feed.id === article.feedId);
+    expect(scraperFeed).toMatchObject({
+      name: "Scraper · unwire",
+      status: "paused",
+    });
+
+    expect(await importScrapedArticles(database, [scraped], "emp-1")).toEqual({
+      imported: 0,
+      skipped: 1,
+      sources: 1,
+    });
+  });
+
+  it("ranks multi-source stories once and hides merged duplicates from later batches", async () => {
+    database = await setup();
+    await importScrapedArticles(
+      database,
+      [
+        {
+          source: "wire-a",
+          title: "OpenAI unveils GPT-5 AI model",
+          url: "https://wire-a.example/gpt-5",
+          author: null,
+          publishedAt: "2026-08-03T06:00:00Z",
+          contentText: "A".repeat(800),
+          imageUrl: null,
+        },
+        {
+          source: "wire-b",
+          title: "OpenAI unveils GPT-5 model for developers",
+          url: "https://wire-b.example/gpt-5",
+          author: null,
+          publishedAt: "2026-08-03T07:00:00Z",
+          contentText: "B".repeat(400),
+          imageUrl: null,
+        },
+        {
+          source: "wire-c",
+          title: "OpenAI launches GPT-5 AI platform",
+          url: "https://wire-c.example/gpt-5",
+          author: null,
+          publishedAt: "2026-08-03T08:00:00Z",
+          contentText: "C".repeat(500),
+          imageUrl: null,
+        },
+        {
+          source: "wire-d",
+          title: "Typhoon warning issued for the weekend",
+          url: "https://wire-d.example/weather",
+          author: null,
+          publishedAt: "2026-08-03T09:00:00Z",
+          contentText: "Weather report.",
+          imageUrl: null,
+        },
+      ],
+      "emp-1",
+    );
+
+    const rssOnlyFeed = await createFeed(
+      database,
+      { name: "RSS-only source", url: "https://rss-only.example/feed.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, rssOnlyFeed.id, [
+      {
+        title: "Promo code story that has no saved scraper text",
+        url: "https://rss-only.example/promo",
+        description: "A short RSS teaser.",
+        author: null,
+        pubDate: 1_780_000_000,
+      },
+    ]);
+
+    const rankedStories = await listPopularPipelineStories(database);
+    expect(rankedStories.some((story) => story.title.includes("Promo code"))).toBe(false);
+    const [topStory] = rankedStories;
+    expect(topStory).toMatchObject({
+      sourceCount: 3,
+      reportCount: 3,
+      title: "OpenAI unveils GPT-5 AI model",
+    });
+
+    const merged = await markPipelineArticlesMerged(
+      database,
+      topStory.articleId,
+      topStory.relatedArticleIds,
+    );
+    expect(merged).toBe(2);
+    expect((await listPipelineArticles(database, "new")).map(({ id }) => id)).toContain(
+      topStory.articleId,
+    );
+    expect(await listPopularPipelineStories(database)).toEqual([
+      expect.objectContaining({ title: "Typhoon warning issued for the weekend", reportCount: 1 }),
+      expect.objectContaining({ title: "OpenAI unveils GPT-5 AI model", reportCount: 1 }),
+    ]);
+  }, 15_000);
 });
 
 describe("feed pipeline ingestion", () => {
@@ -241,6 +369,8 @@ describe("feed pipeline ingestion", () => {
     for (const migration of [
       "0001_authentication.sql",
       "0006_feeds_pipeline.sql",
+      "0007_scraped_article_content.sql",
+      "0008_pipeline_article_merges.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);

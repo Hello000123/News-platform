@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AccountBar } from "@/components/auth/account-bar";
 import { PipelineWorkspace } from "@/components/pipeline/pipeline-workspace";
 import { requirePageSession } from "@/lib/server/auth/guards";
+import { getWebsiteDefaultModel } from "@/lib/server/config";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -29,7 +30,7 @@ export default async function PipelinePage() {
               Review workspace
             </Link>
           </div>
-          <PipelineWorkspace />
+          <PipelineWorkspace initialModel={getWebsiteDefaultModel()} />
         </div>
       </main>
     </div>

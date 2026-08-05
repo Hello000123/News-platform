@@ -16,7 +16,11 @@ export async function POST(request: Request) {
       input.source,
       input.review,
       undefined,
-      { history: input.history, refinement: input.refinement },
+      {
+        history: input.history,
+        refinement: input.refinement,
+        outputLanguage: input.outputLanguage,
+      },
       input.model,
     );
     return jsonResponse(result);

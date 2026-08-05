@@ -38,7 +38,10 @@
 .news-v1-homepage h1,
 .news-v1-homepage h2,
 .news-v1-homepage h3,
-.news-v1-homepage h4,
+.news-v1-homepage h4 {
+  text-wrap: balance;
+}
+
 .news-v1-homepage p {
   text-wrap: pretty;
 }
