@@ -156,6 +156,29 @@ export function fetchAllFeeds() {
   }>("/api/feeds/fetch-all", {}, true);
 }
 
+export interface FeedScheduleSettings {
+  enabled: boolean;
+  intervalMinutes: number;
+  lastAutoFetchAt: number | null;
+}
+
+export function getFeedSchedule() {
+  return requestJson<FeedScheduleSettings>("/api/employee/feed-schedule", {
+    method: "GET",
+  });
+}
+
+export function updateFeedSchedule(input: { enabled: boolean; intervalMinutes: number }) {
+  return requestJson<FeedScheduleSettings>("/api/employee/feed-schedule", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeaders(),
+    },
+    body: JSON.stringify(input),
+  });
+}
+
 export function listPipelineArticles(status?: PipelineArticleStatus) {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
   return requestJson<{ articles: PipelineArticleView[] }>(

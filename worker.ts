@@ -6,16 +6,49 @@
 // @ts-expect-error `.open-next/worker.ts` is generated at build time
 import { default as handler } from "./.open-next/worker.js";
 
-import type { ExportedHandler } from "@cloudflare/workers-types";
+import type { D1Database, ExportedHandler } from "@cloudflare/workers-types";
 
+import { nowInSeconds } from "@/lib/server/auth/crypto";
 import { ingestAllFeeds } from "@/lib/server/feeds/pipeline";
+
+async function shouldIngest(database: D1Database) {
+  const row = await database
+    .prepare(
+      "SELECT enabled, interval_minutes, last_auto_fetch_at FROM feed_schedule_settings WHERE id = 1",
+    )
+    .first<{
+      enabled: number;
+      interval_minutes: number;
+      last_auto_fetch_at: number | null;
+    }>();
+
+  if (!row || row.enabled !== 1) return false;
+
+  const now = nowInSeconds();
+  const intervalSeconds = row.interval_minutes * 60;
+  if (row.last_auto_fetch_at && now - row.last_auto_fetch_at < intervalSeconds) {
+    return false;
+  }
+
+  return true;
+}
 
 export default {
   fetch: handler.fetch,
 
   async scheduled(event, env) {
     try {
+      if (!(await shouldIngest(env.DB))) {
+        console.log("[pressready] feed ingestion skipped (schedule disabled or not due).");
+        return;
+      }
+
       const summary = await ingestAllFeeds(env.DB);
+      await env.DB
+        .prepare("UPDATE feed_schedule_settings SET last_auto_fetch_at = ? WHERE id = 1")
+        .bind(nowInSeconds())
+        .run();
+
       console.log(
         `[pressready] feed ingestion: ${summary.totalParsed} items parsed, ` +
           `${summary.totalAdded} added, ${summary.failedCount} feeds failed.`,
