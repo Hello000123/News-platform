@@ -20,6 +20,11 @@ import {
   pipelineRewriteInputSchema,
   type PipelineArticleView,
 } from "@/lib/shared/feeds-contracts";
+import {
+  COMBINED_PIPELINE_REWRITE_INSTRUCTION,
+  formatSupportingReportPrompt,
+  PIPELINE_REWRITE_FIDELITY_INSTRUCTION,
+} from "@/lib/shared/pipeline-rewrite-instructions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,12 +53,11 @@ async function sourceForArticle(article: PipelineArticleView) {
 }
 
 function supportingReportText(article: PipelineArticleView, sourceText: string, index: number) {
-  return [
-    `RELATED REPORT ${index} — ${article.feedName}`,
-    `Headline: ${article.title}`,
-    `Source URL: ${article.url}`,
+  return formatSupportingReportPrompt(
+    article,
     sourceText.slice(0, MAX_SINGLE_SUPPORTING_REPORT_CHARS),
-  ].join("\n");
+    index,
+  );
 }
 
 async function sourceWithRelatedReports(
@@ -124,9 +128,9 @@ export async function POST(request: Request, context: RouteContext) {
         instruction: [
           input.instruction,
           relatedArticles.length > 0
-            ? "This is a combined news brief. Use the labelled related reports as corroborating source material, retain only facts that are explicit and consistent across the available sources, and do not repeat the same detail or turn supporting-report quotations into new direct quotations."
+            ? COMBINED_PIPELINE_REWRITE_INSTRUCTION
             : "",
-          "Keep the primary article's headline facts, named people, brand and model names, and key figures exact. A concise brief may compress non-essential body detail, but never change, omit, or invent a name, number, date, or quotation that the brief includes.",
+          PIPELINE_REWRITE_FIDELITY_INSTRUCTION,
         ]
           .filter(Boolean)
           .join("\n\n"),

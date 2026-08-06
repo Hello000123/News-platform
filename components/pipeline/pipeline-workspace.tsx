@@ -17,6 +17,7 @@ import type {
   ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
 import type { SelectableModelId } from "@/lib/shared/models";
+import { POPULAR_PIPELINE_REWRITE_INSTRUCTION } from "@/lib/shared/pipeline-rewrite-instructions";
 
 type Filter = PipelineArticleStatus | "all";
 
@@ -250,8 +251,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
             model,
             outputLanguage: "traditional_chinese",
             relatedArticleIds: story.relatedArticleIds,
-            instruction:
-              "Create one clear Traditional Chinese news report for human editorial review. Use only supported, non-conflicting facts from the clustered reports.",
+            instruction: POPULAR_PIPELINE_REWRITE_INSTRUCTION,
           });
           rewrittenCount += 1;
           mergedCount += Math.max(story.reportCount - 1, 0);

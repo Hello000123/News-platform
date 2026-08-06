@@ -242,9 +242,9 @@ describe("review and rewrite API routes", () => {
     });
     expect(providerRequestBody(fetchMock)).not.toHaveProperty("response_format");
     const userPrompt = providerUserPrompt(fetchMock);
-    expect(userPrompt).toContain("LANGUAGE LOCK: English");
+    expect(userPrompt).toContain("語言鎖定：英文");
     expect(userPrompt).toContain('"primaryText": "Officials confirmed the supported update."');
-    expect(userPrompt).toContain('"requiredOutputLanguage": "English"');
+    expect(userPrompt).toContain('"requiredOutputLanguage": "英文"');
     expect(userPrompt).toContain('"sourceUrl": "https://news.example/reference"');
   });
 
@@ -268,7 +268,7 @@ describe("review and rewrite API routes", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(body.finalText).toBe(finalText);
     expect(body.source).toEqual({ primaryText: draft, userDraft: draft, imageContext: [] });
-    expect(providerUserPrompt(fetchMock)).toContain("direct rewrite without a prior review");
+    expect(providerUserPrompt(fetchMock)).toContain("在未經預先審稿的情況下直接改寫");
     expect(providerUserPrompt(fetchMock)).not.toContain("reviewFeedback");
     expect(recordAgentRequestAttempt).toHaveBeenCalledWith("editorial-test-user", "rewrite");
   });
@@ -322,7 +322,7 @@ describe("review and rewrite API routes", () => {
   it.each([
     {
       language: "English",
-      expectedLanguageLock: "English",
+      expectedLanguageLock: "英文",
       draft:
         "The city library opened a new reading room on Thursday. The library said the space will host free community workshops.",
       rewritten:
@@ -330,7 +330,7 @@ describe("review and rewrite API routes", () => {
     },
     {
       language: "Traditional Chinese",
-      expectedLanguageLock: "Chinese",
+      expectedLanguageLock: "中文",
       draft: "市立圖書館周四啟用新的閱讀室。館方表示，該空間將舉辦免費社區工作坊。",
       rewritten:
         "市立圖書館啟用社區閱讀室\n\n市立圖書館周四啟用新的閱讀室，館方表示該空間將舉辦免費社區工作坊。",
@@ -369,7 +369,7 @@ describe("review and rewrite API routes", () => {
     const rewrittenBody = (await rewriteResponse.json()) as { finalText: string };
     expect(rewrittenBody.finalText).toBe(rewritten);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(providerUserPrompt(fetchMock, 1)).toContain(`LANGUAGE LOCK: ${expectedLanguageLock}`);
+    expect(providerUserPrompt(fetchMock, 1)).toContain(`語言鎖定：${expectedLanguageLock}`);
     expect(JSON.stringify(reviewed)).not.toContain("PRIVATE_REASONING_MARKER");
     expect(JSON.stringify(rewrittenBody)).not.toContain("PRIVATE_REASONING_MARKER");
   });

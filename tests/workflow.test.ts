@@ -230,7 +230,7 @@ describe("rewrite workflow", () => {
       temperature: 0.1,
     });
     expect(completion.mock.calls[0][0].userPrompt).toContain(
-      "explicitly requested a rewrite regardless of review score",
+      "已明確要求改寫，不論審稿分數如何",
     );
     expect(completion.mock.calls[0][0].userPrompt).toContain(
       '"primaryText": "Council publishes service update',
@@ -301,7 +301,7 @@ describe("rewrite workflow", () => {
       validation: { status: "passed_after_retry", attempts: 2 },
     });
     expect(completion).toHaveBeenCalledTimes(2);
-    expect(completion.mock.calls[1][0].userPrompt).toContain("active editing baseline");
+    expect(completion.mock.calls[1][0].userPrompt).toContain("現行編輯基準");
     expect(completion.mock.calls[1][0].userPrompt).toContain("Reduce repetition.");
   });
 
@@ -329,7 +329,7 @@ describe("rewrite workflow", () => {
     expect(result.validation).toEqual({ status: "passed_after_retry", attempts: 2 });
     expect(completion).toHaveBeenCalledTimes(2);
     expect(completion.mock.calls[0][0].systemPrompt).toContain(
-      "Never fabricate detail to add length",
+      "絕不可為增加篇幅而捏造細節",
     );
     expect(completion.mock.calls[1][0].userPrompt).toContain("UNTRACEABLE_REWRITE_NUMBER");
   });
@@ -360,13 +360,13 @@ describe("rewrite workflow", () => {
     });
     expect(completion).toHaveBeenCalledTimes(2);
     expect(completion.mock.calls[1][0].userPrompt).toContain(
-      "exact, whitespace-only, or punctuation-only copy",
+      "完全相同、只改空白或只改標點",
     );
     expect(completion.mock.calls[1][0].userPrompt).not.toContain(
-      "FAILED QUOTATIONS ONLY",
+      "只處理以下不符的引文",
     );
     expect(completion.mock.calls[1][0]).toMatchObject({
-      systemPrompt: expect.stringContaining("correcting a failed source echo"),
+      systemPrompt: expect.stringContaining("正在修正未能擺脫來源複製的稿件"),
       temperature: 0,
     });
   });
@@ -387,10 +387,10 @@ describe("rewrite workflow", () => {
       validation: { status: "passed_after_retry", attempts: 2 },
     });
     expect(completion).toHaveBeenCalledTimes(2);
-    expect(completion.mock.calls[1][0].userPrompt).toContain("ONE CORRECTION ATTEMPT");
+    expect(completion.mock.calls[1][0].userPrompt).toContain("只限一次修正");
     expect(completion.mock.calls[1][0].userPrompt).toContain("INVALID_REWRITE_FORMAT");
     expect(completion.mock.calls[1][0]).toMatchObject({
-      systemPrompt: expect.stringContaining("mechanical news-article format corrector"),
+      systemPrompt: expect.stringContaining("機械式新聞文章格式校正器"),
       temperature: 0,
     });
   });
@@ -482,7 +482,7 @@ describe("rewrite workflow", () => {
       "REWRITE_ATTRIBUTION_MISMATCH",
     );
     expect(completion.mock.calls[1][0]).toMatchObject({
-      systemPrompt: expect.stringContaining("mechanical source-fidelity corrector"),
+      systemPrompt: expect.stringContaining("只負責修正來源忠實度的機械式校正器"),
       temperature: 0,
     });
   });
@@ -617,7 +617,7 @@ describe("rewrite workflow", () => {
     expect(completion.mock.calls[1][0].userPrompt).toContain("INEXACT_SOURCE_SCRIPT_NAME");
     expect(completion.mock.calls[1][0].userPrompt).toContain("王繹嘉");
     expect(completion.mock.calls[1][0]).toMatchObject({
-      systemPrompt: expect.stringContaining("mechanical source-fidelity corrector"),
+      systemPrompt: expect.stringContaining("只負責修正來源忠實度的機械式校正器"),
       temperature: 0,
     });
   });
@@ -642,9 +642,9 @@ describe("rewrite workflow", () => {
       validation: { status: "passed_after_retry", attempts: 2 },
     });
     expect(completion).toHaveBeenCalledTimes(2);
-    expect(completion.mock.calls[1][0].userPrompt).toContain("FAILED QUOTATIONS ONLY");
+    expect(completion.mock.calls[1][0].userPrompt).toContain("只處理以下不符的引文");
     expect(completion.mock.calls[1][0]).toMatchObject({
-      systemPrompt: expect.stringContaining("mechanical quotation-fidelity corrector"),
+      systemPrompt: expect.stringContaining("只負責修正引文忠實度的機械式校正器"),
       temperature: 0,
     });
     expect(completion.mock.calls[1][0].userPrompt).toContain(

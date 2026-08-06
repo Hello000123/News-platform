@@ -53,7 +53,7 @@ function withLinkImageContext(
   if (!linkedImageText.trim()) return [];
 
   const sourceItem = {
-    label: "Retrieved source-page image context",
+    label: "擷取自來源頁面的圖片內容",
     text: linkedImageText.trim().slice(0, 4_000),
     source: "link_caption" as const,
   };
