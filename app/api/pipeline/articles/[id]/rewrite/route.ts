@@ -126,11 +126,17 @@ export async function POST(request: Request, context: RouteContext) {
           relatedArticles.length > 0
             ? "This is a combined news brief. Use the labelled related reports as corroborating source material, retain only facts that are explicit and consistent across the available sources, and do not repeat the same detail or turn supporting-report quotations into new direct quotations."
             : "",
+          "Keep the primary article's headline facts, named people, brand and model names, and key figures exact. A concise brief may compress non-essential body detail, but never change, omit, or invent a name, number, date, or quotation that the brief includes.",
         ]
           .filter(Boolean)
           .join("\n\n"),
       },
       outputLanguage: input.outputLanguage ?? "source",
+      // The top-five batch produces summary briefs for editorial review, so
+      // verbatim-fidelity checks apply to the source lead only. Anti-fabrication
+      // checks (invented numbers or quotations) remain strict against the full
+      // article and related reports.
+      relaxedFidelity: true,
     });
     const rewrite = await rewriteWithFeedback(
       source,

@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+
+import { runRewriteAgent } from "@/lib/server/agents/rewrite-agent";
+import { extractVerbatimMixedLanguageTerms, extractComparableNumericValues, sourceLead } from "@/lib/server/agents/prompts";
+import type { SourceSnapshot } from "@/lib/shared/contracts";
+
+function snapshot(primaryText: string): SourceSnapshot {
+  return { primaryText, userDraft: primaryText, imageContext: [] };
+}
+
+const pixelTagSource = [
+  "Apple 的 AirTag 推出後大受歡迎，有外媒最近亦取得一張疑似「Google Pixel Tag」的相片，該產品同時開始在網上多個商店商品清單出現，如果屬實將是 Google 首款自家追蹤裝置，直接挑戰 Apple AirTag。",
+  "Pixel Tag 採用橢圓豆形設計，正面設有明顯 Google「G」標誌，底部設有一個細小開孔，估計內置喇叭，方便用戶就近搜尋物品時發出提示聲，9to5Google 取得歐洲商店的商品清單，型號為 GA12506，顏色命名為「Fog Light」（霧光灰），產品描述指裝置小巧、輕便耐用，可低調貼附於重要物品，透過 Google「Find My Device」網絡隨時在手機查看物品位置。",
+  "目前未有直接證據顯示裝置支援超寬頻（UWB）精準定位技術，電池屬可更換抑或可充電式亦未有定論，裝置外形似乎缺乏內置掛勾裝置，估計需依賴第三方配件。",
+  "Pixel Tag 預料售價低於 40 美元，並支援 iOS 及 Android 裝置，Android 16 QPR2 更新亦加入相關支援，Google 期望與 Samsung 及 Chipolo 等品牌合作，建立更完整的 Find Hub 生態系統。",
+].join("\n\n");
+
+const bylineArticle = "IT之家 8 月 3 日消息，騰訊北極光工作室研發的 PvEvP 獵殺奪寶 FPS 新作《灰境行者》於 7 月 30 日公布了最新預告片，首次展示獨立於 PvP 之外的「三人合作 PvE」玩法模式。\n\n官方同步宣布，遊戲首次 PC 測試將於 9 月正式開啟，目前《灰境行者》頁面已在 Steam 上線。";
+
+// Drops "9to5Google" (body term) and body numbers — previously rejected.
+const deficientSummary = `Google 追蹤裝置 Pixel Tag 圖片流出
+
+Google 的追蹤裝置「Google Pixel Tag」圖片流出，直接挑戰 Apple AirTag。裝置採用橢圓豆形設計，外媒指型號為 GA12506，顏色命名為「Fog Light」。目前未有證據顯示支援精準定位技術，電池設計亦未有定論，預料售價將低於 40 美元，並支援 iOS 及 Android 裝置，預定今年推出。`;
+
+const inventedNumberSummary = `Google 追蹤裝置「Pixel Tag」圖片流出
+
+Google 的追蹤裝置「Google Pixel Tag」圖片流出，直接挑戰 Apple AirTag。外媒指型號為 GA12506，售價將為 99 美元，並於今年推出。`;
+
+const relaxedContext = {
+  history: [] as never[],
+  refinement: { lengthOption: null, instruction: "" },
+  outputLanguage: "traditional_chinese" as const,
+  relaxedFidelity: true,
+};
+const strictContext = { ...relaxedContext, relaxedFidelity: false };
+
+describe("pipeline relaxed fidelity", () => {
+  it("strips source byline before extracting mandatory terms", () => {
+    const lead = sourceLead(bylineArticle);
+    const terms = extractVerbatimMixedLanguageTerms(lead, 5);
+    const numbers = extractComparableNumericValues(lead);
+    expect(lead).not.toContain("IT之家");
+    expect(terms).not.toContain("IT之家");
+    expect(terms).toContain("PvEvP");
+    expect(numbers).toContain("30");
+  });
+
+  it("accepts a brief that omits body terms in relaxed mode", async () => {
+    const result = await runRewriteAgent(
+      snapshot(pixelTagSource),
+      null,
+      async () => deficientSummary,
+      relaxedContext,
+    );
+    expect(result.finalText).toContain("Pixel Tag");
+  });
+
+  it("still rejects the same brief in strict mode", async () => {
+    await expect(
+      runRewriteAgent(snapshot(pixelTagSource), null, async () => deficientSummary, strictContext),
+    ).rejects.toMatchObject({ status: 422, code: "INEXACT_MIXED_LANGUAGE_TERM" });
+  });
+
+  it("still rejects an invented number in relaxed mode", async () => {
+    await expect(
+      runRewriteAgent(
+        snapshot(pixelTagSource),
+        null,
+        async () => inventedNumberSummary,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+});

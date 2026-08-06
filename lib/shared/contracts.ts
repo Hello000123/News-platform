@@ -245,6 +245,11 @@ export const rewriteContextSchema = z
       instruction: "",
     }),
     outputLanguage: rewriteOutputLanguageSchema.optional(),
+    // Summary briefs (such as the pipeline's top-five batch) legitimately
+    // compress body detail. When enabled, verbatim-fidelity checks apply to the
+    // source lead only; anti-fabrication checks (invented numbers/quotes) stay
+    // strict against the full source.
+    relaxedFidelity: z.boolean().optional(),
   })
   .strict();
 

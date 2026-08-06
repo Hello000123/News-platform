@@ -12,7 +12,7 @@ export function extractVerbatimDirectQuotations(draft: string) {
   return validateQuotationPreservation(draft, draft).sourceDirectQuotations.map(({ raw }) => raw);
 }
 
-export function extractVerbatimMixedLanguageTerms(draft: string) {
+export function extractVerbatimMixedLanguageTerms(draft: string, minimumLength = 0) {
   if (!/\p{Script=Han}/u.test(draft) || !/[A-Za-z]/u.test(draft)) return [];
 
   const candidates = [
@@ -46,7 +46,8 @@ export function extractVerbatimMixedLanguageTerms(draft: string) {
         ),
     )
     .map(({ value }) => value)
-    .filter((value, index, values) => values.indexOf(value) === index);
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .filter((value) => Array.from(value).length >= minimumLength);
 }
 
 const commonChineseSurnameCharacters =
@@ -109,6 +110,45 @@ export function extractVerbatimSourceScriptNames(draft: string) {
     .map(({ value }) => value)
     .filter((value) => !nonNameTails.has(value.slice(1)))
     .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+/**
+ * The mandatory-fidelity window for summary briefs. Returns the source's first
+ * non-byline paragraph so a concise rewrite must preserve the essential identifiers
+ * in the lede without being forced to keep every body-term, spec number, and
+ * quotation verbatim. Falls back to the whole text when the source is a single
+ * paragraph.
+ */
+export function sourceLead(text: string) {
+  const normalized = text.normalize("NFC").trim();
+  if (!normalized) return "";
+  const paragraphs = normalized
+    .split(/\r?\n[\t \f\v]*\r?\n(?:[\t \f\v]*\r?\n)*/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  if (paragraphs.length <= 1) return stripBylinePrefix(normalized);
+
+  // Skip a short standalone byline paragraph (e.g. "文：Tony") and use the
+  // next paragraph as the real lead.
+  if (
+    paragraphs.length > 1 &&
+    /^文[：:]\s*\S{1,20}\s*$/u.test(paragraphs[0] ?? "")
+  ) {
+    return stripBylinePrefix(paragraphs[1] ?? paragraphs[0] ?? "");
+  }
+  return stripBylinePrefix(paragraphs[0] ?? "");
+}
+
+const bylineSourceDatePattern = String.raw`^\S{2,15}(?:之家|新闻网|新闻|在[线線]|網|网|報|报|社|周刊|日報|日报)(?:\s+\d{1,2}\s*月\s*\d{1,2}\s*日)?[^\n,，。]{0,15}(?:消息|讯|电|報導|报道|快讯|专稿)[,，]\s*`;
+
+/**
+ * News-scraper output often includes a source-byline prefix at the top of the
+ * article (e.g. "IT之家 8 月 3 日消息，" or "文：Tony"). Stripping it prevents
+ * false-positive mandatory terms that a clean brief should never be forced to
+ * reproduce.
+ */
+function stripBylinePrefix(text: string) {
+  return text.replace(new RegExp(bylineSourceDatePattern, "u"), "").trim();
 }
 
 export function extractNumericValues(text: string) {
@@ -586,6 +626,21 @@ export function createRewriteUserPrompt(
     source.primaryText,
     context.outputLanguage,
   );
+  const fidelityText = context.relaxedFidelity
+    ? sourceLead(source.primaryText)
+    : source.primaryText;
+  const mandatoryDirectQuotations = context.relaxedFidelity
+    ? extractVerbatimDirectQuotations(fidelityText)
+    : verbatimDirectQuotations;
+  const mandatoryMixedLanguageTerms = context.relaxedFidelity
+    ? extractVerbatimMixedLanguageTerms(fidelityText, 5)
+    : verbatimMixedLanguageTerms;
+  const mandatorySourceScriptNames = context.relaxedFidelity
+    ? extractVerbatimSourceScriptNames(fidelityText)
+    : verbatimSourceScriptNames;
+  const mandatoryNumericValues = context.relaxedFidelity
+    ? extractComparableNumericValues(fidelityText)
+    : null;
 
   return [
     review
@@ -593,14 +648,17 @@ export function createRewriteUserPrompt(
       : "Rewrite the primary article now. The user requested a direct rewrite without a prior review. Improve the copy using the source and active rewrite instructions only.",
     `LANGUAGE LOCK: ${requiredOutputLanguage}`,
     `NUMBER TRACEABILITY: ${JSON.stringify(allowedNumericValues)}`,
-    "Copy every mandatory direct quotation's wording, source-script person name, and mixed-language term exactly. In English output, retain non-English quotations and names in their source script; any translation belongs outside the quotation marks.",
+    context.relaxedFidelity
+      ? "You are producing a concise news brief. The MANDATORY entries below come only from the source lead; you may compress or omit body detail, but you must copy every mandatory mixed-language term, source-script name, and lead figure exactly. Every digit you do include must still be traceable to NUMBER TRACEABILITY, and no direct quotation may be invented or altered."
+      : "Copy every mandatory direct quotation's wording, source-script person name, and mixed-language term exactly. In English output, retain non-English quotations and names in their source script; any translation belongs outside the quotation marks.",
     JSON.stringify(
       {
         requiredOutputLanguage,
         allowedNumericValues,
-        verbatimDirectQuotations,
-        verbatimMixedLanguageTerms,
-        verbatimSourceScriptNames,
+        verbatimDirectQuotations: mandatoryDirectQuotations,
+        verbatimMixedLanguageTerms: mandatoryMixedLanguageTerms,
+        verbatimSourceScriptNames: mandatorySourceScriptNames,
+        ...(mandatoryNumericValues ? { mandatoryNumericValues } : {}),
         source,
         ...(review ? { reviewFeedback: review } : {}),
         rewriteSession: {

@@ -446,7 +446,11 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                 <span className="pipeline-list-item-title">{article.title}</span>
                 <span className="pipeline-list-item-meta">
                   {article.feedName}
-                  {article.pubDate ? ` · ${formattedDate(article.pubDate)}` : ""}
+                  {article.status !== "new" && article.updatedAt
+                    ? ` · ${formattedDate(article.updatedAt)}`
+                    : article.pubDate
+                      ? ` · ${formattedDate(article.pubDate)}`
+                      : ""}
                 </span>
                 <span className={`status-badge status-${article.status}`}>
                   {article.status}
@@ -463,7 +467,12 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                   <h2>{selectedArticle.title}</h2>
                   <p>
                     {selectedArticle.author ? `${selectedArticle.author} · ` : ""}
-                    Published {formattedDate(selectedArticle.pubDate)}
+                    {selectedArticle.pubDate
+                      ? `Published ${formattedDate(selectedArticle.pubDate)}`
+                      : ""}
+                    {selectedArticle.status !== "new" && selectedArticle.updatedAt
+                      ? ` · ${selectedArticle.status === "rewritten" ? "Rewritten" : selectedArticle.status === "approved" ? "Approved" : "Discarded"} ${formattedDate(selectedArticle.updatedAt)}`
+                      : ""}
                   </p>
                 </div>
                 <span className={`status-badge status-${selectedArticle.status}`}>
