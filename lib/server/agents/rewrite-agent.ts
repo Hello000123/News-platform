@@ -5,16 +5,18 @@ import {
   createRewriteUserPrompt,
   createUnchangedRewriteCorrectionPrompt,
   CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT,
-  extractComparableNumericValues,
+  extractNumericFacts,
   extractVerbatimSourceScriptNames,
   FORMAT_CORRECTION_SYSTEM_PROMPT,
   extractVerbatimMixedLanguageTerms,
+  numericFactHasSupport,
   preservesRequestedOutputLanguage,
   QUOTATION_CORRECTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
   requiredOutputLanguageFor,
+  rewriteEvidenceCorpus,
+  rewriteFidelityText,
   SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
-  sourceLead,
 } from "@/lib/server/agents/prompts";
 import {
   validateQuotationPreservation,
@@ -42,18 +44,6 @@ const EMPTY_REWRITE_CONTEXT: RewriteContext = {
 function removeCodeFence(text: string) {
   const match = text.match(/^\x60\x60\x60(?:text|markdown)?\s*([\s\S]*?)\s*\x60\x60\x60$/iu);
   return (match?.[1] ?? text).trim();
-}
-
-function sourceCorpus(source: SourceSnapshot, context: RewriteContext) {
-  return [
-    source.primaryText,
-    source.linkedText ?? "",
-    ...source.imageContext.map(({ text }) => text),
-    ...context.history.map(({ instruction }) => instruction),
-    context.refinement.instruction,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 function canonicalArticle(text: string) {
@@ -180,115 +170,155 @@ function extractEnglishSmallNumberValues(text: string) {
     .filter((value, index, values) => values.indexOf(value) === index);
 }
 
-function validateSafeCandidate(
+interface CandidateValidationFailure {
+  code: string;
+  message: string;
+  status: number;
+}
+
+const validationFailuresByError = new WeakMap<AppError, CandidateValidationFailure[]>();
+
+function candidateValidationError(failures: CandidateValidationFailure[]) {
+  const first = failures[0];
+  const publicMessage =
+    failures.length === 1
+      ? first.message
+      : `${first.message} The candidate has ${failures.length - 1} additional validation problem${failures.length === 2 ? "" : "s"}; the automatic correction will address them together.`;
+  const error = new AppError(first.code, publicMessage, first.status, {
+    publicDetails: {
+      retryable: true,
+      details: failures.map(({ code, message }) => `${code}: ${message}`),
+    },
+  });
+  validationFailuresByError.set(error, failures);
+  return error;
+}
+
+function validationFailuresFor(error: AppError) {
+  return validationFailuresByError.get(error) ?? [
+    { code: error.code, message: error.message, status: error.status },
+  ];
+}
+
+function collectSafeCandidateFailures(
   candidate: string,
   source: SourceSnapshot,
   context: RewriteContext,
 ) {
+  const failures: CandidateValidationFailure[] = [];
   if (!candidate) {
-    throw new AppError(
-      "EMPTY_REWRITE",
-      "The Rewrite Agent returned an empty news report. Please try again.",
-      502,
-      { publicDetails: { retryable: true } },
-    );
+    return [
+      {
+        code: "EMPTY_REWRITE",
+        message: "The Rewrite Agent returned an empty news report. Please try again.",
+        status: 502,
+      },
+    ];
   }
 
   if (!hasRequiredRewriteFormat(candidate)) {
-    throw new AppError(
-      "INVALID_REWRITE_FORMAT",
-      "The Rewrite Agent did not return a headline followed by a complete article. Please retry the rewrite.",
-      502,
-      { publicDetails: { retryable: true } },
-    );
+    failures.push({
+      code: "INVALID_REWRITE_FORMAT",
+      message:
+        "The Rewrite Agent did not return a headline followed by a complete article. Please retry the rewrite.",
+      status: 502,
+    });
   }
 
-  // Summary briefs legitimately compress body detail, so verbatim-fidelity terms,
-  // names, and numbers are required only from the source lead. Fabrication guards
-  // (untraceable numbers) still scan the full corpus below.
-  const fidelityText = context.relaxedFidelity
-    ? sourceLead(source.primaryText)
-    : source.primaryText;
-  const minimumTermLength = context.relaxedFidelity ? 5 : 0;
-
-  const missingMixedLanguageTerm = extractVerbatimMixedLanguageTerms(
+  const newsBrief = Boolean(context.relaxedFidelity);
+  const fidelityText = rewriteFidelityText(source, newsBrief);
+  const minimumTermLength = newsBrief ? (source.linkedTitle ? 2 : 5) : 0;
+  const missingMixedLanguageTerms = extractVerbatimMixedLanguageTerms(
     fidelityText,
     minimumTermLength,
-  ).find((term) => !candidate.includes(term));
-  if (missingMixedLanguageTerm) {
-    throw new AppError(
-      "INEXACT_MIXED_LANGUAGE_TERM",
-      `The Rewrite Agent omitted or changed the source term “${missingMixedLanguageTerm}”. Retry the rewrite so names and mixed-language terms remain exact.`,
-      422,
-      { publicDetails: { retryable: true } },
-    );
+  ).filter((term) => !candidate.includes(term));
+  if (missingMixedLanguageTerms.length > 0) {
+    failures.push({
+      code: "INEXACT_MIXED_LANGUAGE_TERM",
+      message: `The Rewrite Agent omitted or changed required source terms: ${missingMixedLanguageTerms.map((term) => `“${term}”`).join(", ")}. Retry the rewrite so names and mixed-language terms remain exact.`,
+      status: 422,
+    });
   }
 
   if (!preservesRequestedOutputLanguage(source.primaryText, candidate, context.outputLanguage)) {
-    throw new AppError(
-      "REWRITE_LANGUAGE_MISMATCH",
-      `The Rewrite Agent did not produce the required language (${requiredOutputLanguageFor(source.primaryText, context.outputLanguage)}). Please retry.`,
-      422,
-      { publicDetails: { retryable: true } },
-    );
+    failures.push({
+      code: "REWRITE_LANGUAGE_MISMATCH",
+      message: `The Rewrite Agent did not produce the required language (${requiredOutputLanguageFor(source.primaryText, context.outputLanguage)}). Please retry.`,
+      status: 422,
+    });
   }
 
   const missingSourceScriptNames = extractVerbatimSourceScriptNames(fidelityText).filter(
     (name) => !candidate.includes(name),
   );
   if (missingSourceScriptNames.length > 0) {
-    throw new AppError(
-      "INEXACT_SOURCE_SCRIPT_NAME",
-      `The Rewrite Agent omitted or romanized required source-script name${missingSourceScriptNames.length === 1 ? "" : "s"}: ${missingSourceScriptNames.map((name) => `“${name}”`).join(", ")}. Keep each listed name character-for-character at least once, even when the narration is English.`,
-      422,
-      { publicDetails: { retryable: true } },
-    );
+    failures.push({
+      code: "INEXACT_SOURCE_SCRIPT_NAME",
+      message: `The Rewrite Agent omitted or romanized required source-script name${missingSourceScriptNames.length === 1 ? "" : "s"}: ${missingSourceScriptNames.map((name) => `“${name}”`).join(", ")}. Keep each listed name character-for-character at least once, even when the narration is English.`,
+      status: 422,
+    });
   }
 
-  const allowedNumericValues = new Set(
-    extractComparableNumericValues(sourceCorpus(source, context)),
+  const evidenceNumericFacts = extractNumericFacts(rewriteEvidenceCorpus(source, newsBrief));
+  const outputNumericFacts = extractNumericFacts(candidate);
+  const untraceableNumericFacts = outputNumericFacts.filter(
+    (fact) => !numericFactHasSupport(fact, evidenceNumericFacts),
   );
-  const untraceableNumericValue = extractComparableNumericValues(candidate).find(
-    (value) => !allowedNumericValues.has(value),
-  );
-  if (untraceableNumericValue) {
-    throw new AppError(
-      "UNTRACEABLE_REWRITE_NUMBER",
-      `The Rewrite Agent introduced the number “${untraceableNumericValue}”, which is not in the submitted or retrieved source material. Please retry.`,
-      422,
-      { publicDetails: { retryable: true } },
-    );
+  if (untraceableNumericFacts.length > 0) {
+    failures.push({
+      code: "UNTRACEABLE_REWRITE_NUMBER",
+      message: `The Rewrite Agent introduced unsupported numeric facts: ${untraceableNumericFacts.map(({ raw, unit }) => `“${raw}${unit ? `” (${unit})` : "”"}`).join(", ")}. A matching value with a different currency, unit, or subject is not sufficient evidence.`,
+      status: 422,
+    });
   }
 
-  const requiredNumericValues = extractComparableNumericValues(fidelityText);
-  const outputNumericValues = new Set([
-    ...extractComparableNumericValues(candidate),
+  const requiredNumericFacts = extractNumericFacts(fidelityText);
+  const outputFactsForCoverage = [
+    ...outputNumericFacts,
     ...(requiredOutputLanguageFor(source.primaryText, context.outputLanguage) === "English"
-      ? extractEnglishSmallNumberValues(candidate)
+      ? extractEnglishSmallNumberValues(candidate).map((value) => ({
+          value,
+          unit: null,
+          raw: value,
+        }))
       : []),
-  ]);
-  const missingNumericValue = requiredNumericValues.find((value) => !outputNumericValues.has(value));
-  if (missingNumericValue) {
-    throw new AppError(
-      "MISSING_REWRITE_NUMBER",
-      `The Rewrite Agent omitted the source number “${missingNumericValue}”. Please retry so material figures and dates remain intact.`,
-      422,
-      { publicDetails: { retryable: true } },
-    );
+  ];
+  const missingNumericFacts = requiredNumericFacts.filter(
+    (fact) => !numericFactHasSupport(fact, outputFactsForCoverage),
+  );
+  if (missingNumericFacts.length > 0) {
+    failures.push({
+      code: "MISSING_REWRITE_NUMBER",
+      message: `The Rewrite Agent omitted required core numeric facts: ${missingNumericFacts.map(({ raw, unit }) => `“${raw}${unit ? `” (${unit})` : "”"}`).join(", ")}. Please retry so title-level figures and dates remain intact.`,
+      status: 422,
+    });
   }
+  return failures;
+}
+
+function validateSafeCandidate(
+  candidate: string,
+  source: SourceSnapshot,
+  context: RewriteContext,
+) {
+  const failures = collectSafeCandidateFailures(candidate, source, context);
+  if (failures.length > 0) throw candidateValidationError(failures);
 }
 
 function untraceableDirectQuotationError(
   validation: ReturnType<typeof validateQuotationPreservation>,
 ) {
-  if (!validation.valid) return null;
   const allowedContents = new Set(
     [...validation.sourceDirectQuotations, ...validation.ignoredSourceLabels].map(
       ({ canonicalContent }) => canonicalContent,
     ),
   );
+  const comparedCandidateStarts = new Set(
+    validation.issues.flatMap((issue) => issue.candidateQuotes.map(({ start }) => start)),
+  );
   const invented = validation.rewriteQuotations.find(
-    ({ classification, classificationReason, canonicalContent }) =>
+    ({ start, classification, classificationReason, canonicalContent }) =>
+      !comparedCandidateStarts.has(start) &&
       classification === "direct" &&
       (classificationReason === "attribution" ||
         Array.from(canonicalContent).length >= 30) &&
@@ -416,8 +446,6 @@ function namedQuotationAttributionError(
   attempts: number,
   relaxed = false,
 ) {
-  if (!validation.valid) return null;
-
   const protectedAttributions = validation.sourceDirectQuotations.flatMap(
     (quotation): NamedQuotationAttribution[] => {
       const speaker = namedSpeakerForQuotation(sourceText, quotation);
@@ -614,22 +642,41 @@ export async function runRewriteAgent(
     source.primaryText,
     firstCandidate,
   );
-  if (!firstSafetyError) {
-    firstSafetyError = untraceableDirectQuotationError(firstQuotationValidation);
-  }
-  if (!firstSafetyError) {
-    firstSafetyError = namedQuotationAttributionError(
+  const firstIssues = publicQuotationIssues(
+    firstQuotationValidation.issues,
+    source.primaryText,
+  );
+  const quotationSafetyErrors = [
+    untraceableDirectQuotationError(firstQuotationValidation),
+    namedQuotationAttributionError(
       source.primaryText,
       firstCandidate,
       firstQuotationValidation,
       1,
       context.relaxedFidelity,
-    );
+    ),
+  ].filter((error): error is AppError => Boolean(error));
+  if (firstSafetyError || quotationSafetyErrors.length > 0) {
+    const failures = [
+      ...(firstSafetyError ? validationFailuresFor(firstSafetyError) : []),
+      ...quotationSafetyErrors.map((error) => ({
+        code: error.code,
+        message: error.message,
+        status: error.status,
+      })),
+    ];
+    if (
+      firstSafetyError &&
+      !quotationValidationPasses(firstQuotationValidation, context)
+    ) {
+      failures.push({
+        code: "INEXACT_REWRITE_QUOTATION",
+        message: `The candidate also has ${firstIssues.length} modified, split, merged, or punctuation-changed source quotation${firstIssues.length === 1 ? "" : "s"}; restore every affected quotation exactly.`,
+        status: 422,
+      });
+    }
+    firstSafetyError = candidateValidationError(failures);
   }
-  const firstIssues = publicQuotationIssues(
-    firstQuotationValidation.issues,
-    source.primaryText,
-  );
   const firstIsUnchanged = isEditingBaselineEcho(firstCandidate, source, context);
 
   if (!firstSafetyError && quotationValidationPasses(firstQuotationValidation, context) && !firstIsUnchanged) {
@@ -642,7 +689,14 @@ export async function runRewriteAgent(
   const correctionPrompt = firstSafetyError
     ? createRewriteValidationCorrectionPrompt(
         firstCandidate,
-        { code: firstSafetyError.code, message: firstSafetyError.message },
+        {
+          code: firstSafetyError.code,
+          message: firstSafetyError.message,
+          failures: validationFailuresFor(firstSafetyError).map(({ code, message }) => ({
+            code,
+            message,
+          })),
+        },
         source,
         review,
         context,
@@ -664,9 +718,7 @@ export async function runRewriteAgent(
   let secondCandidate = "";
   try {
     const isQuotationCorrection = !firstSafetyError && !firstIsUnchanged;
-    const isSourceFidelityCorrection =
-      firstSafetyError?.code === "INEXACT_SOURCE_SCRIPT_NAME" ||
-      firstSafetyError?.code === "REWRITE_ATTRIBUTION_MISMATCH";
+    const isSourceFidelityCorrection = firstSafetyError?.status === 422;
     const isFormatCorrection =
       firstSafetyError?.code === "INVALID_REWRITE_FORMAT" ||
       firstSafetyError?.code === "EMPTY_REWRITE";

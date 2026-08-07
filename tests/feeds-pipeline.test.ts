@@ -20,6 +20,7 @@ import {
   markFeedFetchResult,
   setPipelineArticleRewritten,
   updateFeed,
+  updatePipelineArticlePost,
   updatePipelineArticleStatus,
 } from "@/lib/server/feeds/repository";
 import { fetchAndIngestFeed, ingestAllFeeds } from "@/lib/server/feeds/pipeline";
@@ -70,6 +71,7 @@ describe("feeds repository", () => {
       "0006_feeds_pipeline.sql",
       "0007_scraped_article_content.sql",
       "0008_pipeline_article_merges.sql",
+      "0010_pipeline_article_publication.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);
@@ -165,9 +167,53 @@ describe("feeds repository", () => {
     await updatePipelineArticleStatus(database, articles[0].id, "approved");
     const approved = await getPipelineArticleById(database, articles[0].id);
     expect(approved?.status).toBe("approved");
+    expect(approved?.publishedAt).toEqual(expect.any(Number));
+
+    await updatePipelineArticlePost(database, articles[0].id, {
+      rewrittenText: "Updated homepage headline.\n\nUpdated homepage copy.",
+      imageUrl: "https://images.example.com/updated-story.webp",
+    });
+    expect(await getPipelineArticleById(database, articles[0].id)).toMatchObject({
+      status: "approved",
+      rewrittenText: "Updated homepage headline.\n\nUpdated homepage copy.",
+      imageUrl: "https://images.example.com/updated-story.webp",
+    });
 
     const approvedOnly = await listPipelineArticles(database, "approved");
     expect(approvedOnly).toHaveLength(1);
+  });
+
+  it("can rewrite and publish a pipeline article in one persistence step", async () => {
+    database = await setup();
+    const feed = await createFeed(
+      database,
+      { name: "World News", url: "https://feeds.example/world.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Publish-ready source",
+        url: "https://example.com/publish-ready",
+        description: null,
+        author: null,
+        pubDate: 1_700_000_000,
+      },
+    ]);
+    const article = (await listPipelineArticles(database))[0];
+
+    await setPipelineArticleRewritten(
+      database,
+      article.id,
+      "Homepage headline\n\nHomepage article copy.",
+      "approved",
+    );
+
+    expect(await getPipelineArticleById(database, article.id)).toMatchObject({
+      status: "approved",
+      rewrittenText: "Homepage headline\n\nHomepage article copy.",
+      publishedAt: expect.any(Number),
+    });
+    expect((await listPublicArticles(database))[0]?.id).toBe(article.id);
   });
 
   it("exposes only approved articles with rewritten text on the public site", async () => {
@@ -371,6 +417,7 @@ describe("feed pipeline ingestion", () => {
       "0006_feeds_pipeline.sql",
       "0007_scraped_article_content.sql",
       "0008_pipeline_article_merges.sql",
+      "0010_pipeline_article_publication.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);

@@ -142,6 +142,7 @@ export const pipelineArticleViewSchema = z
     sourceText: z.string().nullable().optional(),
     imageUrl: z.string().nullable().optional(),
     mergedIntoArticleId: z.string().nullable().optional(),
+    publishedAt: z.number().nullable().optional(),
     createdAt: z.number(),
     updatedAt: z.number(),
   })
@@ -205,6 +206,7 @@ export const pipelineRewriteInputSchema = z
         `Improvement instructions are limited to ${MAX_REWRITE_INSTRUCTION_CHARS.toLocaleString("en-US")} characters.`,
       )
       .default(""),
+    publish: z.boolean().default(false),
   })
   .strict();
 
@@ -244,3 +246,52 @@ export const pipelineStatusUpdateSchema = z
   .strict();
 
 export type PipelineStatusUpdateInput = z.infer<typeof pipelineStatusUpdateSchema>;
+
+const pipelineArticleImageUrlSchema = z
+  .union([
+    z.null(),
+    z.literal(""),
+    z
+      .string()
+      .trim()
+      .max(
+        FEED_URL_MAX_LENGTH,
+        `Image URLs are limited to ${FEED_URL_MAX_LENGTH.toLocaleString("en-US")} characters.`,
+      )
+      .url("Enter a valid image URL.")
+      .refine((value) => {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+      }, "Use a public HTTP or HTTPS image URL without embedded credentials."),
+  ])
+  .transform((value) => value || null);
+
+export const pipelineArticlePostUpdateSchema = z
+  .object({
+    rewrittenText: z
+      .string()
+      .trim()
+      .min(1, "The post needs a headline and article copy before it can be saved.")
+      .max(
+        PIPELINE_ARTICLE_REWRITTEN_TEXT_MAX_LENGTH,
+        `Post copy is limited to ${PIPELINE_ARTICLE_REWRITTEN_TEXT_MAX_LENGTH.toLocaleString("en-US")} characters.`,
+      )
+      .optional(),
+    imageUrl: pipelineArticleImageUrlSchema.optional(),
+    status: z.enum(["approved", "discarded"]).optional(),
+  })
+  .strict()
+  .refine(
+    (input) =>
+      input.rewrittenText !== undefined ||
+      input.imageUrl !== undefined ||
+      input.status !== undefined,
+    "Change the post copy, featured image, or publication status before saving.",
+  );
+
+export type PipelineArticlePostUpdateInput = z.input<
+  typeof pipelineArticlePostUpdateSchema
+>;
+export type PipelineArticlePostUpdate = z.infer<
+  typeof pipelineArticlePostUpdateSchema
+>;

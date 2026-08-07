@@ -19,6 +19,24 @@ describe("pipeline rewrite instructions", () => {
     }
   });
 
+  it("defines newsroom structure, source priority, conflicts, and title-bounded fidelity", () => {
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("香港繁體中文精簡新聞報道");
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("倒金字塔結構");
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain(
+      "不得提及排名、熱門程度、來源數量或批次處理",
+    );
+    expect(COMBINED_PIPELINE_REWRITE_INSTRUCTION).toContain("主要文章是主稿");
+    expect(COMBINED_PIPELINE_REWRITE_INSTRUCTION).toContain(
+      "不得平均數字、拼湊結論或自行判定真偽",
+    );
+    expect(PIPELINE_REWRITE_FIDELITY_INSTRUCTION).toContain(
+      "主要文章標題中的核心事件、具名人物、品牌、型號及數值是最低覆蓋要求",
+    );
+    expect(PIPELINE_REWRITE_FIDELITY_INSTRUCTION).toContain(
+      "相同數值如配上不同單位或所指事物，仍屬錯誤",
+    );
+  });
+
   it("uses Chinese labels while preserving supporting-report data verbatim", () => {
     const prompt = formatSupportingReportPrompt(
       {

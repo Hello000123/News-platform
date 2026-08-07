@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import {
+  articleDisplayTitle,
   articleTimestamp,
   extractArticleKeyPoints,
   extractArticleSummary,
@@ -13,7 +14,12 @@ import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 const MAX_HOMEPAGE_ARTICLES = 15;
 const PROTOTYPE_TOPICS = ["生成式 AI", "數碼共融", "社區創新", "影響力營運"];
 
-export { extractArticleKeyPoints, extractArticleSummary, placeholderImageUrl };
+export {
+  articleDisplayTitle,
+  extractArticleKeyPoints,
+  extractArticleSummary,
+  placeholderImageUrl,
+};
 
 export interface HomepageArticle {
   article: PipelineArticleView;
@@ -256,6 +262,10 @@ function articleHref(article: HomepageArticle) {
   return `/news/${encodeURIComponent(article.article.id)}`;
 }
 
+function homepageArticleTitle(article: HomepageArticle) {
+  return articleDisplayTitle(article.article);
+}
+
 function StoryLink({
   article,
   children,
@@ -283,6 +293,8 @@ function ArticleImage({
   fetchPriority?: "high" | "low" | "auto";
 }) {
   const image = (
+    // Arbitrary editor-supplied hosts cannot be safely enumerated in Next image remotePatterns.
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={article.imageUrl ?? article.article.imageUrl ?? placeholderImageUrl(article.article.id, width, height)}
       width={width}
@@ -321,6 +333,7 @@ function LeadIndex({ keyPoints }: { keyPoints: string[] }) {
 
 function RelatedStory({ article }: { article: HomepageArticle }) {
   const timestamp = articleTimestamp(article.article);
+  const title = homepageArticleTitle(article);
   return (
     <article>
       <figure>
@@ -328,14 +341,14 @@ function RelatedStory({ article }: { article: HomepageArticle }) {
           article={article}
           width={720}
           height={405}
-          alt={`${article.article.title} 的新聞示意圖片`}
+          alt={`${title} 的新聞示意圖片`}
         />
       </figure>
       <p>
         {article.article.feedName}・{formatDate(timestamp)}
       </p>
       <h2>
-        <StoryLink article={article}>{article.article.title}</StoryLink>
+        <StoryLink article={article}>{title}</StoryLink>
       </h2>
     </article>
   );
@@ -343,6 +356,7 @@ function RelatedStory({ article }: { article: HomepageArticle }) {
 
 function FeatureStory({ article }: { article: HomepageArticle }) {
   const timestamp = articleTimestamp(article.article);
+  const title = homepageArticleTitle(article);
   return (
     <>
       <figure className="news-v1-column-visual">
@@ -350,7 +364,7 @@ function FeatureStory({ article }: { article: HomepageArticle }) {
           article={article}
           width={960}
           height={540}
-          alt={`${article.article.title} 的新聞示意圖片`}
+          alt={`${title} 的新聞示意圖片`}
         />
         <figcaption>
           <span>{article.article.feedName}</span>
@@ -360,7 +374,7 @@ function FeatureStory({ article }: { article: HomepageArticle }) {
       <article className="news-v1-feature-story">
         <p className="news-v1-story-label">已核准報道・{formatDate(timestamp)}</p>
         <h4>
-          <StoryLink article={article}>{article.article.title}</StoryLink>
+          <StoryLink article={article}>{title}</StoryLink>
         </h4>
         {article.summary ? <p>{article.summary}</p> : null}
         <p className="news-v1-article-meta">
@@ -372,11 +386,12 @@ function FeatureStory({ article }: { article: HomepageArticle }) {
 }
 
 function ShortStory({ article }: { article: HomepageArticle }) {
+  const title = homepageArticleTitle(article);
   return (
     <article>
       <p>{article.article.feedName}</p>
       <h4>
-        <StoryLink article={article}>{article.article.title}</StoryLink>
+        <StoryLink article={article}>{title}</StoryLink>
       </h4>
     </article>
   );
@@ -384,6 +399,7 @@ function ShortStory({ article }: { article: HomepageArticle }) {
 
 export function NewsHomepage({ view }: { view: HomepageView }) {
   const leadTimestamp = view.lead ? articleTimestamp(view.lead.article) : null;
+  const leadTitle = view.lead ? homepageArticleTitle(view.lead) : null;
   const issueDate = formatDate(leadTimestamp);
 
   return (
@@ -400,7 +416,7 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
 
             <h1 id="news-v1-lead-heading">
               {view.lead ? (
-                <StoryLink article={view.lead}>{view.lead.article.title}</StoryLink>
+                <StoryLink article={view.lead}>{leadTitle}</StoryLink>
               ) : (
                 "PressReady Newsroom"
               )}
@@ -437,7 +453,7 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
                   article={view.lead}
                   width={1200}
                   height={800}
-                  alt={`${view.lead.article.title} 的封面新聞示意圖片`}
+                  alt={`${leadTitle} 的封面新聞示意圖片`}
                   loading="eager"
                   fetchPriority="high"
                 />
@@ -539,7 +555,7 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
                     </time>
                     <p>{article.article.feedName}</p>
                     <h3>
-                      <StoryLink article={article}>{article.article.title}</StoryLink>
+                      <StoryLink article={article}>{homepageArticleTitle(article)}</StoryLink>
                     </h3>
                   </li>
                 );

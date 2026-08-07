@@ -20,12 +20,17 @@ export function articleParagraphs(text: string) {
     .filter(Boolean);
 }
 
-/**
- * Keeps every meaningful paragraph, except a title repeated verbatim as the
- * opening paragraph. RSS rewrite output is not otherwise treated as metadata.
- */
+export function articleDisplayTitle(article: PipelineArticleView) {
+  const rewrittenParagraphs = articleParagraphs(article.rewrittenText ?? "");
+  return rewrittenParagraphs.length >= 2
+    ? rewrittenParagraphs[0]
+    : article.title;
+}
+
+/** Treats the first paragraph of a complete rewrite as its editorial headline. */
 export function articleBodyParagraphs(article: PipelineArticleView) {
   const paragraphs = articleParagraphs(article.rewrittenText ?? "");
+  if (paragraphs.length >= 2) return paragraphs.slice(1);
   if (
     paragraphs[0] &&
     normalizeArticleText(paragraphs[0]) === normalizeArticleText(article.title)
@@ -53,7 +58,7 @@ export function extractArticleKeyPoints(article: PipelineArticleView) {
 }
 
 export function articleTimestamp(article: PipelineArticleView) {
-  return article.pubDate ?? article.createdAt;
+  return article.publishedAt ?? article.pubDate ?? article.createdAt;
 }
 
 export function placeholderImageUrl(

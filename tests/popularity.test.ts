@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  connectedStoryArticles,
   selectPopularPipelineStories,
   titlesDescribeSameStory,
 } from "@/lib/server/feeds/popularity";
@@ -77,5 +78,17 @@ describe("pipeline story popularity", () => {
       ),
     ).toBe(false);
     expect(titlesDescribeSameStory("香港推出新創科基金", "香港推出新創科基金")).toBe(true);
+  });
+
+  it("keeps only the transitive component connected to the canonical story", () => {
+    const canonical = article("a", "wire-a", "Alpha Beta launch");
+    const bridge = article("b", "wire-b", "Alpha Beta Gamma");
+    const transitive = article("c", "wire-c", "Beta Gamma Delta");
+    const unrelated = article("d", "wire-d", "Hong Kong market closes higher");
+
+    expect(connectedStoryArticles(canonical, [bridge, transitive, unrelated])).toEqual([
+      bridge,
+      transitive,
+    ]);
   });
 });

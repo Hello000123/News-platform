@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import {
   articleBodyParagraphs,
+  articleDisplayTitle,
   articleTimestamp,
   extractArticleKeyPoints,
   extractArticleSummary,
@@ -40,6 +41,7 @@ export function NewsArticlePageContent({
   related: readonly PipelineArticleView[];
 }) {
   const body = articleBodyParagraphs(article);
+  const title = articleDisplayTitle(article);
   const deck = extractArticleSummary(article);
   const keyPoints = extractArticleKeyPoints(article);
   const timestamp = articleTimestamp(article);
@@ -60,7 +62,7 @@ export function NewsArticlePageContent({
               <Link href="/">← 所有已核准報道</Link>
             </nav>
             <p className="news-v1-article-kicker">{article.feedName}・已核准報道</p>
-            <h1 id="article-title">{article.title}</h1>
+            <h1 id="article-title">{title}</h1>
             {deck ? <p className="news-v1-article-deck">{deck}</p> : null}
 
             <dl className="news-v1-article-metadata">
@@ -88,17 +90,19 @@ export function NewsArticlePageContent({
           </header>
 
           <figure className="news-v1-article-hero">
+            {/* Arbitrary editor-supplied hosts cannot be safely enumerated in Next image remotePatterns. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={placeholderImageUrl(article.id, 1200, 675)}
+              src={article.imageUrl ?? placeholderImageUrl(article.id, 1200, 675)}
               width={1200}
               height={675}
-              alt={`${article.title} 的新聞示意圖片`}
+              alt={`${title} 的新聞圖片`}
               loading="eager"
               fetchPriority="high"
             />
             <figcaption className="news-v1-page-shell">
               <span>PressReady / Approved report</span>
-              <span>示意圖片</span>
+              <span>{article.imageUrl ? "精選圖片" : "示意圖片"}</span>
             </figcaption>
           </figure>
 
@@ -136,7 +140,9 @@ export function NewsArticlePageContent({
                       {related.map((relatedArticle) => (
                         <li key={relatedArticle.id}>
                           <p>{relatedArticle.feedName}</p>
-                          <Link href={articleHref(relatedArticle)}>{relatedArticle.title}</Link>
+                          <Link href={articleHref(relatedArticle)}>
+                            {articleDisplayTitle(relatedArticle)}
+                          </Link>
                         </li>
                       ))}
                     </ul>

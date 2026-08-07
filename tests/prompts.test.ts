@@ -9,6 +9,7 @@ import {
   createRewriteUserPrompt,
   createUnchangedRewriteCorrectionPrompt,
   determineRequiredOutputLanguage,
+  extractNumericFacts,
   extractNumericValues,
   extractComparableNumericValues,
   extractVerbatimDirectQuotations,
@@ -43,21 +44,25 @@ function embeddedJson(prompt: string) {
 
 const rewriteInstructionLatinAllowlist = new Set([
   "JSON",
-  "allowedNumericValues",
+  "allowedNumericFacts",
   "concise",
   "currentRefinement",
   "currentTurn",
   "earlierTurns",
+  "full_article",
   "imageContext",
   "lengthOption",
   "linkedText",
+  "mandatoryNumericFacts",
   "more_detailed",
+  "news_brief",
   "null",
   "original",
   "outputLanguage",
   "primaryText",
   "requiredOutputLanguage",
   "rewriteContext",
+  "rewriteMode",
   "rewriteSession",
   "traditional_chinese",
   "verbatimDirectQuotations",
@@ -160,28 +165,32 @@ describe("agent prompts", () => {
 
   it("makes source authority, genuine editing, quotation fidelity, and format explicit", () => {
     for (const rule of [
-      "達到刊登質素的新聞報道",
-      "primaryText 是要改寫的文章，並主導其事實含義",
-      "審稿意見和較早的人工智能改寫只屬編採脈絡",
-      "保留重要事實、人名、職銜、日期、地點、數字",
-      "不得把中文人名羅馬化或音譯",
-      "每個含數字的值都必須可精確追溯至 allowedNumericValues",
-      "verbatimDirectQuotations 中每個項目都是必須保留的直接引文",
-      "逐字保留引文內容",
-      "不得把意譯或間接引語改成新的直接引文",
-      "verbatimMixedLanguageTerms 中每個項目都必須逐字保留",
-      "撰寫準確標題、有力導語，以及採用倒金字塔結構的正文",
-      "不要只為令輸出看來不同而換字",
-      "與 primaryText 完全相同、只改空白或只改標點的稿件不算改寫",
-      "requiredOutputLanguage 會按 primaryText 自動判定",
-      "只有 currentRefinement.lengthOption 控制本次回應",
-      "選用 concise 時，提供更短、更直接的版本",
-      "選用 more_detailed 時，只可使用來源資料或使用者指示中明確出現的資訊作擴寫",
-      "絕不可為增加篇幅而捏造細節",
+      "審慎的香港新聞編輯",
+      "primaryText 是主要文章",
+      "審稿意見、較早的人工智能改寫及使用者改善指示只可決定編採方向",
+      "每項輸出陳述都必須可由來源文字直接支持",
+      "rewriteMode 為 full_article",
+      "rewriteMode 為 news_brief",
+      "改寫模式只改變必須覆蓋的資料範圍",
+      "verbatimMixedLanguageTerms 和 verbatimSourceScriptNames 中每個項目都必須逐字出現",
+      "allowedNumericFacts 中同一項事實相符",
+      "只有數值相同但貨幣、單位或所指事物不同，仍屬沒有來源支持",
+      "verbatimDirectQuotations 中每個項目都必須連同內部標點逐字保留",
+      "不得把間接引語或輔助報道內容變成新的直接引文",
+      "香港常用書面語及中文標點",
+      "避免簡體字、內地新聞套語、生硬直譯",
+      "正文採用倒金字塔結構",
+      "不要提及本次改寫、資料檢索或來源組合過程",
+      "不要只為令稿件看來不同而換字",
+      "與目前編輯基準完全相同、只改空白或只改標點，不算完成改寫",
+      "只有 currentRefinement.lengthOption 控制本次篇幅",
+      "concise 要更短更直接",
+      "more_detailed 只可加入來源明確載有而且與主題相關的細節",
       "以最新指示為準",
-      "不得把相對時間表述轉為確實曆日",
-      "一行標題、一個空白行，然後是文章正文",
-      "不得加入標記格式、評分、評論、前言、署名或媒體歸屬",
+      "不得把相對時間轉成曆日",
+      "requiredOutputLanguage 指定的語言及文字系統",
+      "第一行為標題，第二行留空",
+      "不得加入標記格式、評分、評論、前言、署名、來源清單或媒體歸屬",
     ]) {
       expect(REWRITE_SYSTEM_PROMPT).toContain(rule);
     }
@@ -197,8 +206,17 @@ describe("agent prompts", () => {
     expect(SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT).toContain(
       "只負責修正來源忠實度的機械式校正器",
     );
+    expect(SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT).toContain(
+      "一次過修正驗證失敗清單中的每項問題",
+    );
+    expect(FORMAT_CORRECTION_SYSTEM_PROMPT).toContain(
+      "遵守 rewriteMode 的覆蓋範圍",
+    );
     expect(CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT).toContain(
       "正在修正未能擺脫來源複製的稿件",
+    );
+    expect(CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT).toContain(
+      "只有 rewriteMode 為 news_brief 時",
     );
   });
 
@@ -222,11 +240,13 @@ describe("agent prompts", () => {
   it("sends the full source snapshot, review feedback, and detected language to rewrite", () => {
     const prompt = createRewriteUserPrompt(editorialSource, highReview);
     const payload = embeddedJson(prompt) as {
+      rewriteMode: string;
       requiredOutputLanguage: string;
-      allowedNumericValues: string[];
+      allowedNumericFacts: Array<{ value: string; unit: string | null }>;
       verbatimDirectQuotations: string[];
       verbatimMixedLanguageTerms: string[];
       verbatimSourceScriptNames: string[];
+      mandatoryNumericFacts: Array<{ value: string; unit: string | null }>;
       source: SourceSnapshot;
       reviewFeedback: unknown;
       rewriteSession: {
@@ -237,9 +257,20 @@ describe("agent prompts", () => {
     };
 
     expect(prompt).toContain("已明確要求改寫，不論審稿分數如何");
+    expect(prompt).toContain("改寫模式：完整文章改寫");
     expect(prompt).toContain("語言鎖定：繁體中文");
+    expect(payload.rewriteMode).toBe("full_article");
     expect(payload.requiredOutputLanguage).toMatch(/^繁體中文/);
-    expect(payload.allowedNumericValues).toEqual(["7", "16", "20", "24"]);
+    expect(payload.allowedNumericFacts).toEqual([
+      { value: "7", unit: "time:month" },
+      { value: "16", unit: "time:day" },
+      { value: "20", unit: "count:person" },
+      { value: "24", unit: null },
+    ]);
+    expect(payload.mandatoryNumericFacts).toEqual([
+      { value: "7", unit: "time:month" },
+      { value: "16", unit: "time:day" },
+    ]);
     expect(payload.verbatimDirectQuotations).toEqual(["「計劃會繼續。」"]);
     expect(payload.verbatimMixedLanguageTerms).toContain("Blue Harbour AI");
     expect(payload.source).toEqual(editorialSource);
@@ -286,9 +317,10 @@ describe("agent prompts", () => {
     expect(quotationPrompt).toContain("只處理以下不符的引文：");
     expect(quotationPrompt).toContain("候選稿件：");
     expect(unchangedPrompt).toContain("候選稿與現行編輯基準完全相同");
+    expect(unchangedPrompt).toContain("改寫模式：完整文章改寫");
     expect(unchangedPrompt).toContain("語言鎖定：繁體中文");
     expect(validationPrompt).toContain("只限一次修正");
-    expect(validationPrompt).toContain("候選稿沒有採用一行標題");
+    expect(validationPrompt).toContain("候選稿沒有採用第一行標題、第二行留空");
     expect(validationPrompt).toContain("INVALID_REWRITE_FORMAT");
     expect(validationPrompt).not.toContain("The candidate did not use the required format.");
   });
@@ -313,7 +345,7 @@ describe("agent prompts", () => {
       },
     });
     const payload = embeddedJson(prompt) as {
-      allowedNumericValues: string[];
+      allowedNumericFacts: Array<{ value: string; unit: string | null }>;
       rewriteSession: {
         earlierTurns: Array<Record<string, unknown>>;
         currentTurn: Record<string, unknown>;
@@ -337,7 +369,42 @@ describe("agent prompts", () => {
       lengthOption: "concise",
       instruction: "Use a more formal tone and retain the confirmed 30 seats.",
     });
-    expect(payload.allowedNumericValues).toContain("30");
+    expect(payload.allowedNumericFacts.some(({ value }) => value === "30")).toBe(false);
+  });
+
+  it("uses title-bounded coverage for a news brief without weakening evidence checks", () => {
+    const briefSource: SourceSnapshot = {
+      primaryText:
+        "Google Pixel 9手機今日推出，售價為40美元。\n\n團隊表示：「電池續航更長。」機身支援30 W充電。",
+      userDraft: "",
+      linkedTitle: "Google Pixel 9售價40美元",
+      linkedText: "另一篇報道亦指售價為40美元。",
+      imageContext: [],
+    };
+    const prompt = createRewriteUserPrompt(briefSource, null, {
+      history: [],
+      refinement: { lengthOption: null, instruction: "" },
+      outputLanguage: "traditional_chinese",
+      relaxedFidelity: true,
+    });
+    const payload = embeddedJson(prompt) as {
+      rewriteMode: string;
+      allowedNumericFacts: Array<{ value: string; unit: string | null }>;
+      verbatimDirectQuotations: string[];
+      verbatimMixedLanguageTerms: string[];
+      mandatoryNumericFacts: Array<{ value: string; unit: string | null }>;
+    };
+
+    expect(prompt).toContain("改寫模式：精簡新聞簡報");
+    expect(prompt).toContain("正文的非核心細節及來源引文可以省略");
+    expect(payload.rewriteMode).toBe("news_brief");
+    expect(payload.verbatimDirectQuotations).toEqual([]);
+    expect(payload.verbatimMixedLanguageTerms).toContain("Google Pixel 9");
+    expect(payload.mandatoryNumericFacts).toEqual([
+      { value: "9", unit: null },
+      { value: "40", unit: "currency:usd" },
+    ]);
+    expect(payload.allowedNumericFacts).toContainEqual({ value: "30", unit: "w" });
   });
 
   it("extracts supported quotation styles, mixed-language terms, and numeric values exactly", () => {
@@ -362,6 +429,15 @@ describe("agent prompts", () => {
     expect(extractComparableNumericValues("The budget was 4.2 million and 3 thousand.")).toEqual([
       "4200000",
       "3000",
+    ]);
+    expect(extractNumericFacts("售價40美元，首批128部，已有十萬人預訂。")).toEqual([
+      { value: "40", unit: "currency:usd", raw: "40" },
+      { value: "128", unit: "count:unit", raw: "128" },
+      { value: "100000", unit: "count:person", raw: "十萬" },
+    ]);
+    expect(extractNumericFacts("The team has 20 workers and uses 30 W.")).toEqual([
+      { value: "20", unit: "count:person", raw: "20" },
+      { value: "30", unit: "w", raw: "30" },
     ]);
     expect(
       extractVerbatimSourceScriptNames(

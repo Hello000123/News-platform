@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { runRewriteAgent } from "@/lib/server/agents/rewrite-agent";
 import { extractVerbatimMixedLanguageTerms, extractComparableNumericValues, sourceLead } from "@/lib/server/agents/prompts";
 import type { SourceSnapshot } from "@/lib/shared/contracts";
 
-function snapshot(primaryText: string): SourceSnapshot {
-  return { primaryText, userDraft: primaryText, imageContext: [] };
+function snapshot(
+  primaryText: string,
+  options: { linkedTitle?: string; linkedText?: string } = {},
+): SourceSnapshot {
+  return { primaryText, userDraft: primaryText, imageContext: [], ...options };
 }
 
 const pixelTagSource = [
@@ -45,6 +48,11 @@ describe("pipeline relaxed fidelity", () => {
     expect(numbers).toContain("30");
   });
 
+  it("bounds a scraper article that has no blank-line paragraph boundary", () => {
+    const lead = sourceLead(`公司公布新產品，並交代主要功能。${"後續規格及背景資料。".repeat(120)}`);
+    expect(Array.from(lead).length).toBeLessThanOrEqual(600);
+  });
+
   it("accepts a brief that omits body terms in relaxed mode", async () => {
     const result = await runRewriteAgent(
       snapshot(pixelTagSource),
@@ -70,5 +78,84 @@ describe("pipeline relaxed fidelity", () => {
         relaxedContext,
       ),
     ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
+  it("rejects source numbers that are swapped onto different units", async () => {
+    const badCandidate =
+      "公司公布新裝置\n\n公司表示新裝置售價為 128 美元，首批供應 40 部。";
+    await expect(
+      runRewriteAgent(
+        snapshot("公司表示新裝置售價為 40 美元，首批供應 128 部。"),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
+  it("does not treat generated related-report labels as numeric evidence", async () => {
+    const badCandidate = "公司公布新產品\n\n公司公布 1 款新產品。";
+    await expect(
+      runRewriteAgent(
+        snapshot("公司公布新產品。", {
+          linkedText:
+            "相關報道 1 — Example\n標題：另一報道\n來源網址：https://example.com/story\n公司同日公布產品。",
+        }),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
+  it("rejects an unsupported Chinese-written quantity", async () => {
+    const badCandidate = "公司公布新產品\n\n公司表示新產品已有十萬人預訂。";
+    await expect(
+      runRewriteAgent(
+        snapshot("公司公布新產品，並表示稍後交代銷售安排。"),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
+  it("rejects an invented quotation even when multiple source quotations are omitted", async () => {
+    const badCandidate =
+      "公司公布新產品\n\n公司周五公布新產品，行政總裁陳大文說：「產品已獲大量客戶預訂。」";
+    await expect(
+      runRewriteAgent(
+        snapshot(
+          "公司周五公布新產品。行政總裁陳大文說：「產品將於下月推出。」他補充說：「售價稍後公布。」\n\n公司表示產品將在香港發售。",
+        ),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_QUOTATION" });
+  });
+
+  it("sends all deterministic failures in the single correction attempt", async () => {
+    const deficientCandidate = "新產品推出\n\n公司公布新產品。";
+    const completion = vi.fn().mockResolvedValue(deficientCandidate);
+
+    await expect(
+      runRewriteAgent(
+        snapshot("公司公布 Google Pixel 9，售價為 40 美元。", {
+          linkedTitle: "Google Pixel 9 售價 40 美元",
+        }),
+        null,
+        completion,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "INEXACT_MIXED_LANGUAGE_TERM" });
+
+    expect(completion).toHaveBeenCalledTimes(2);
+    expect(completion.mock.calls[1][0].userPrompt).toContain("INEXACT_MIXED_LANGUAGE_TERM");
+    expect(completion.mock.calls[1][0].userPrompt).toContain("MISSING_REWRITE_NUMBER");
+    expect(completion.mock.calls[1][0]).toMatchObject({
+      systemPrompt: expect.stringContaining("只負責修正來源忠實度的機械式校正器"),
+      temperature: 0,
+    });
   });
 });

@@ -19,11 +19,11 @@ export default async function PipelinePage() {
         <div className="pipeline-shell">
           <div className="pipeline-page-heading">
             <div>
-              <div className="eyebrow">Feed ingestion</div>
+              <div className="eyebrow">Editorial publishing</div>
               <h1>News Pipeline</h1>
               <p>
-                Review articles scraped from your feeds, rewrite them with AI,
-                and approve or discard the final copy.
+                Turn incoming reports into editable posts, choose a featured image,
+                and publish the finished story directly to the homepage.
               </p>
             </div>
             <Link className="button button-secondary" href="/review">

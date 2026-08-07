@@ -151,11 +151,22 @@ describe("NewsHomepage rendering", () => {
     expect(screen.queryByRole("link", { name: "當公共 AI 走進社區，誰來定義真正需要解決的問題？" })).toBeNull();
   });
 
-  it("renders live article titles as links in the editorial slots", () => {
-    render(<NewsHomepage view={buildHomepageView(Array.from({ length: 10 }, (_, index) => article(index)))} />);
+  it("renders rewritten headlines and saved images in the live editorial slots", () => {
+    render(
+      <NewsHomepage
+        view={buildHomepageView(
+          Array.from({ length: 10 }, (_, index) =>
+            article(index, index === 0 ? { imageUrl: "https://images.example.com/lead.webp" } : {}),
+          ),
+        )}
+      />,
+    );
 
-    const storyLinks = screen.getAllByRole("link", { name: /Approved story/u });
+    const storyLinks = screen.getAllByRole("link", { name: /Story \d+ headline/u });
     expect(storyLinks.length).toBeGreaterThan(10);
     expect(storyLinks.every((link) => link.getAttribute("href")?.startsWith("/news/article-"))).toBe(true);
+    expect(screen.getByRole("img", { name: "Story 0 headline 的封面新聞示意圖片" }).getAttribute("src")).toBe(
+      "https://images.example.com/lead.webp",
+    );
   });
 });

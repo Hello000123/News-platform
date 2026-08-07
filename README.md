@@ -148,7 +148,10 @@ without uploading to R2:
 Each run writes `.tmp/YYYY-MM-DD/combined.json`. Sign in to the website, open
 `/pipeline`, and choose **Import scraper JSON** to upload that file. The application
 stores each article's saved text and optional image in the same pipeline used by the
-site: **import → rewrite with AI → human approval → public homepage**. Imported source
+site: **import → rewrite with AI → edit the post and featured image → publish to the
+homepage**. The first paragraph of the finished rewrite becomes the public headline;
+editors can save a draft, publish it directly, update a live post, or remove it from
+the homepage from the same composer. Imported source
 feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
 fetch their placeholder URLs.
 

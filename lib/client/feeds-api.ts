@@ -5,6 +5,7 @@ import type {
   FeedInput,
   FeedUpdateInput,
   FeedView,
+  PipelineArticlePostUpdateInput,
   PipelineArticleStatus,
   PipelineArticleView,
   PipelineRewriteInput,
@@ -235,6 +236,13 @@ export function updatePipelineArticleStatus(
   id: string,
   status: "approved" | "discarded",
 ) {
+  return updatePipelineArticlePost(id, { status });
+}
+
+export function updatePipelineArticlePost(
+  id: string,
+  input: PipelineArticlePostUpdateInput,
+) {
   return requestJson<{ article: PipelineArticleView }>(
     `/api/pipeline/articles/${encodeURIComponent(id)}`,
     {
@@ -243,7 +251,7 @@ export function updatePipelineArticleStatus(
         "Content-Type": "application/json",
         ...csrfHeaders(),
       },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(input),
     },
   );
 }

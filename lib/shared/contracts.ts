@@ -248,9 +248,9 @@ export const rewriteContextSchema = z
     }),
     outputLanguage: rewriteOutputLanguageSchema.optional(),
     // Summary briefs (such as the pipeline's top-five batch) legitimately
-    // compress body detail. When enabled, verbatim-fidelity checks apply to the
-    // source lead only; anti-fabrication checks (invented numbers/quotes) stay
-    // strict against the full source.
+    // compress body detail. When enabled, required coverage comes from the
+    // canonical title while every included fact remains grounded in source
+    // evidence.
     relaxedFidelity: z.boolean().optional(),
   })
   .strict();

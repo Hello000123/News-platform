@@ -10,6 +10,7 @@ import {
   setPipelineArticleRewritten,
 } from "@/lib/server/feeds/repository";
 import { loadArticleContent } from "@/lib/server/feeds/scraper";
+import { connectedStoryArticles } from "@/lib/server/feeds/popularity";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
 import {
   DEFAULT_REWRITE_OUTPUT_LANGUAGE,
@@ -112,13 +113,39 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const requestedRelatedIds = input.relatedArticleIds.filter((relatedId) => relatedId !== article.id);
-    const relatedArticles = (await getPipelineArticlesByIds(database, requestedRelatedIds)).filter(
+    const requestedRelatedIds = [
+      ...new Set(input.relatedArticleIds.filter((relatedId) => relatedId !== article.id)),
+    ];
+    const requestedRelatedArticles = await getPipelineArticlesByIds(
+      database,
+      requestedRelatedIds,
+    );
+    const eligibleRelatedArticles = requestedRelatedArticles.filter(
       (relatedArticle) =>
         relatedArticle.status === "new" &&
         !relatedArticle.mergedIntoArticleId &&
         relatedArticle.id !== article.id,
     );
+    if (
+      requestedRelatedArticles.length !== requestedRelatedIds.length ||
+      eligibleRelatedArticles.length !== requestedRelatedArticles.length
+    ) {
+      throw new AppError(
+        "RELATED_ARTICLE_STATE_CONFLICT",
+        "One or more related reports changed after the story cluster was selected. Refresh the pipeline before rewriting.",
+        409,
+        { publicDetails: { retryable: true } },
+      );
+    }
+    const relatedArticles = connectedStoryArticles(article, eligibleRelatedArticles);
+    if (relatedArticles.length !== eligibleRelatedArticles.length) {
+      throw new AppError(
+        "RELATED_ARTICLE_CLUSTER_MISMATCH",
+        "One or more related reports no longer belong to the canonical story cluster. Refresh the pipeline before rewriting.",
+        409,
+        { publicDetails: { retryable: true } },
+      );
+    }
     await recordAgentRequestAttempt(session.user.id, "rewrite");
 
     const source = await sourceWithRelatedReports(article, relatedArticles);
@@ -137,10 +164,9 @@ export async function POST(request: Request, context: RouteContext) {
           .join("\n\n"),
       },
       outputLanguage: input.outputLanguage ?? DEFAULT_REWRITE_OUTPUT_LANGUAGE,
-      // The top-five batch produces summary briefs for editorial review, so
-      // verbatim-fidelity checks apply to the source lead only. Anti-fabrication
-      // checks (invented numbers or quotations) remain strict against the full
-      // article and related reports.
+      // The top-five batch produces summary briefs for editorial review. Core
+      // coverage comes from the canonical title, while every included numeric
+      // fact and quotation remains grounded in clean source evidence.
       relaxedFidelity: true,
     });
     const rewrite = await rewriteWithFeedback(
@@ -150,7 +176,12 @@ export async function POST(request: Request, context: RouteContext) {
       rewriteContext,
       input.model,
     );
-    const rewritten = await setPipelineArticleRewritten(database, article.id, rewrite.finalText);
+    const rewritten = await setPipelineArticleRewritten(
+      database,
+      article.id,
+      rewrite.finalText,
+      input.publish ? "approved" : "rewritten",
+    );
     if (!rewritten) {
       throw new AppError(
         "ARTICLE_REWRITE_CONFLICT",

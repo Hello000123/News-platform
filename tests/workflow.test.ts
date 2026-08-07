@@ -305,7 +305,7 @@ describe("rewrite workflow", () => {
     expect(completion.mock.calls[1][0].userPrompt).toContain("Reduce repetition.");
   });
 
-  it("allows explicit user-supplied detail but corrects invented detail in more-detailed mode", async () => {
+  it("does not allow an improvement instruction to become factual evidence", async () => {
     const source = sourceSnapshot(
       "Council announces venue plan\n\nThe council announced a supported venue plan.",
     );
@@ -317,16 +317,16 @@ describe("rewrite workflow", () => {
       .mockResolvedValueOnce(invented)
       .mockResolvedValueOnce(corrected);
 
-    const result = await rewriteWithFeedback(source, highReview, completion, {
-      history: [],
-      refinement: {
-        lengthOption: "more_detailed",
-        instruction: "The user confirms that the venue has 30 seats.",
-      },
-    });
+    await expect(
+      rewriteWithFeedback(source, highReview, completion, {
+        history: [],
+        refinement: {
+          lengthOption: "more_detailed",
+          instruction: "The user claims that the venue has 30 seats.",
+        },
+      }),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
 
-    expect(result.finalText).toBe(corrected);
-    expect(result.validation).toEqual({ status: "passed_after_retry", attempts: 2 });
     expect(completion).toHaveBeenCalledTimes(2);
     expect(completion.mock.calls[0][0].systemPrompt).toContain(
       "絕不可為增加篇幅而捏造細節",

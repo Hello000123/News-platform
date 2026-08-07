@@ -9,6 +9,7 @@ import type {
   FeedStatus,
   FeedUpdateInput,
   FeedView,
+  PipelineArticlePostUpdate,
   PipelineArticleStatus,
   PipelineArticleView,
   PopularPipelineStory,
@@ -41,6 +42,7 @@ interface PipelineArticleRow {
   source_text: string | null;
   image_url: string | null;
   merged_into_article_id: string | null;
+  published_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -74,6 +76,7 @@ function mapArticle(row: PipelineArticleRow): PipelineArticleView {
     sourceText: row.source_text,
     imageUrl: row.image_url,
     mergedIntoArticleId: row.merged_into_article_id,
+    publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -99,6 +102,7 @@ const ARTICLE_SELECT = `
     article.source_text,
     article.image_url,
     article.merged_into_article_id,
+    article.published_at,
     article.created_at,
     article.updated_at
   FROM pipeline_articles AS article
@@ -251,7 +255,7 @@ export async function listPublicArticles(database: D1Database, limit = 100) {
          AND article.rewritten_text IS NOT NULL
          AND length(trim(article.rewritten_text)) > 0
          AND article.merged_into_article_id IS NULL
-       ORDER BY COALESCE(article.pub_date, article.created_at) DESC
+       ORDER BY COALESCE(article.published_at, article.pub_date, article.created_at) DESC
        LIMIT ?`,
     )
     .bind(safeLimit)
@@ -516,13 +520,63 @@ export async function updatePipelineArticleStatus(
   articleId: string,
   status: PipelineArticleStatus,
 ) {
+  const now = nowInSeconds();
   const result = await database
     .prepare(
       `UPDATE pipeline_articles
-       SET status = ?, updated_at = ?
+       SET status = ?,
+           published_at = CASE
+             WHEN ? = 'approved' AND status != 'approved' THEN ?
+             ELSE published_at
+           END,
+           updated_at = ?
        WHERE id = ?`,
     )
-    .bind(status, nowInSeconds(), articleId)
+    .bind(status, status, now, now, articleId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+export async function updatePipelineArticlePost(
+  database: D1Database,
+  articleId: string,
+  input: PipelineArticlePostUpdate,
+) {
+  const assignments: string[] = [];
+  const values: Array<string | number | null> = [];
+  const now = nowInSeconds();
+
+  if (input.rewrittenText !== undefined) {
+    assignments.push("rewritten_text = ?");
+    values.push(input.rewrittenText);
+    if (input.status === undefined) {
+      assignments.push(
+        "status = CASE WHEN status = 'approved' THEN 'approved' ELSE 'rewritten' END",
+      );
+    }
+  }
+  if (input.imageUrl !== undefined) {
+    assignments.push("image_url = ?");
+    values.push(input.imageUrl);
+  }
+  if (input.status !== undefined) {
+    assignments.push("status = ?");
+    values.push(input.status);
+    assignments.push(
+      "published_at = CASE WHEN ? = 'approved' AND status != 'approved' THEN ? ELSE published_at END",
+    );
+    values.push(input.status, now);
+  }
+
+  assignments.push("updated_at = ?");
+  values.push(now, articleId);
+  const result = await database
+    .prepare(
+      `UPDATE pipeline_articles
+       SET ${assignments.join(", ")}
+       WHERE id = ? AND merged_into_article_id IS NULL`,
+    )
+    .bind(...values)
     .run();
   return result.meta.changes > 0;
 }
@@ -531,14 +585,22 @@ export async function setPipelineArticleRewritten(
   database: D1Database,
   articleId: string,
   rewrittenText: string,
+  status: "rewritten" | "approved" = "rewritten",
 ) {
+  const now = nowInSeconds();
   const result = await database
     .prepare(
       `UPDATE pipeline_articles
-       SET status = 'rewritten', rewritten_text = ?, updated_at = ?
+       SET status = ?,
+           rewritten_text = ?,
+           published_at = CASE
+             WHEN ? = 'approved' AND status != 'approved' THEN ?
+             ELSE published_at
+           END,
+           updated_at = ?
        WHERE id = ? AND merged_into_article_id IS NULL`,
     )
-    .bind(rewrittenText, nowInSeconds(), articleId)
+    .bind(status, rewrittenText, status, now, now, articleId)
     .run();
   return result.meta.changes > 0;
 }

@@ -111,6 +111,31 @@ export function titlesDescribeSameStory(leftTitle: string, rightTitle: string) {
   return intersectionSize(leftHan, rightHan) >= 3 && jaccard(leftHan, rightHan) >= 0.46;
 }
 
+/** Returns only reports connected to the canonical story, including transitive matches. */
+export function connectedStoryArticles<T extends { id: string; title: string }>(
+  canonicalArticle: T,
+  relatedArticles: readonly T[],
+) {
+  const allArticles = [canonicalArticle, ...relatedArticles];
+  const connectedIds = new Set([canonicalArticle.id]);
+  const queue = [canonicalArticle];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    for (const candidate of allArticles) {
+      if (
+        connectedIds.has(candidate.id) ||
+        !titlesDescribeSameStory(current.title, candidate.title)
+      ) {
+        continue;
+      }
+      connectedIds.add(candidate.id);
+      queue.push(candidate);
+    }
+  }
+  return relatedArticles.filter((candidate) => connectedIds.has(candidate.id));
+}
+
 function sourceTextLength(article: PopularityArticle) {
   return article.sourceText?.trim().length ?? article.description?.trim().length ?? 0;
 }

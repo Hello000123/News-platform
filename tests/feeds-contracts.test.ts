@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   feedInputSchema,
   feedUpdateSchema,
+  pipelineArticlePostUpdateSchema,
   pipelineRewriteInputSchema,
   pipelineStatusUpdateSchema,
   scrapedArticleImportRequestSchema,
@@ -57,6 +58,8 @@ describe("feeds contracts", () => {
     expect(input.outputLanguage).toBe("traditional_chinese");
     expect(input.relatedArticleIds).toEqual(["article-a", "article-b"]);
     expect(pipelineRewriteInputSchema.parse({}).relatedArticleIds).toEqual([]);
+    expect(pipelineRewriteInputSchema.parse({}).publish).toBe(false);
+    expect(pipelineRewriteInputSchema.parse({ publish: true }).publish).toBe(true);
   });
 
   it("validates pipeline status transitions", () => {
@@ -65,6 +68,30 @@ describe("feeds contracts", () => {
     );
     expect(() =>
       pipelineStatusUpdateSchema.parse({ status: "rewritten" }),
+    ).toThrow();
+  });
+
+  it("validates editable post copy and public featured-image URLs", () => {
+    expect(
+      pipelineArticlePostUpdateSchema.parse({
+        rewrittenText: "  Homepage headline\n\nHomepage copy.  ",
+        imageUrl: "https://images.example.com/story.webp",
+        status: "approved",
+      }),
+    ).toEqual({
+      rewrittenText: "Homepage headline\n\nHomepage copy.",
+      imageUrl: "https://images.example.com/story.webp",
+      status: "approved",
+    });
+    expect(pipelineArticlePostUpdateSchema.parse({ imageUrl: "" }).imageUrl).toBeNull();
+    expect(() => pipelineArticlePostUpdateSchema.parse({})).toThrow();
+    expect(() =>
+      pipelineArticlePostUpdateSchema.parse({ imageUrl: "javascript:alert(1)" }),
+    ).toThrow();
+    expect(() =>
+      pipelineArticlePostUpdateSchema.parse({
+        imageUrl: "https://user:password@images.example.com/story.webp",
+      }),
     ).toThrow();
   });
 

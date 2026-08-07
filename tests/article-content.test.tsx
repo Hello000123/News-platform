@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   articleBodyParagraphs,
+  articleDisplayTitle,
   extractArticleKeyPoints,
   extractArticleSummary,
   placeholderImageUrl,
@@ -39,8 +40,9 @@ function article(index: number, overrides: Partial<PipelineArticleView> = {}): P
 }
 
 describe("public article content helpers", () => {
-  it("removes only an opening paragraph that repeats the article title", () => {
+  it("uses the rewrite headline and keeps only article body paragraphs", () => {
     const repeatedTitle = article(1);
+    expect(articleDisplayTitle(repeatedTitle)).toBe("Article headline 1");
     expect(articleBodyParagraphs(repeatedTitle)).toEqual([
       "Opening paragraph 1 provides the key context.",
       "Second paragraph 1 develops the report.",
@@ -48,11 +50,11 @@ describe("public article content helpers", () => {
     ]);
 
     const distinctOpening = article(2, {
-      rewrittenText: "An important opening sentence.\n\nThe second valid paragraph follows.",
+      rewrittenText: "A new editorial headline\n\nThe first valid paragraph follows.",
     });
+    expect(articleDisplayTitle(distinctOpening)).toBe("A new editorial headline");
     expect(articleBodyParagraphs(distinctOpening)).toEqual([
-      "An important opening sentence.",
-      "The second valid paragraph follows.",
+      "The first valid paragraph follows.",
     ]);
   });
 
@@ -93,11 +95,16 @@ describe("NewsArticlePageContent", () => {
   afterEach(cleanup);
 
   it("renders article metadata, body, public source, hero, and accessible related links", () => {
-    const current = article(1, { description: "A useful editorial deck." });
+    const current = article(1, {
+      description: "A useful editorial deck.",
+      imageUrl: "https://images.example.com/article-1.webp",
+      rewrittenText:
+        "A stronger rewritten headline\n\nOpening paragraph 1 provides the key context.\n\nSecond paragraph 1 develops the report.",
+    });
     const related = article(2);
     render(<NewsArticlePageContent article={current} related={[related]} />);
 
-    expect(screen.getByRole("heading", { level: 1, name: current.title })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "A stronger rewritten headline" })).toBeTruthy();
     expect(screen.getByText("A useful editorial deck.")).toBeTruthy();
     expect(document.querySelector(".news-v1-article-lede")?.textContent).toBe(
       "Opening paragraph 1 provides the key context.",
@@ -106,8 +113,8 @@ describe("NewsArticlePageContent", () => {
       "Second paragraph 1 develops the report.",
     );
     expect(screen.getByRole("link", { name: /source\.example\.com/u }).getAttribute("href")).toBe(current.url);
-    expect(screen.getByRole("img", { name: `${current.title} 的新聞示意圖片` }).getAttribute("src")).toBe(
-      placeholderImageUrl(current.id, 1200, 675),
+    expect(screen.getByRole("img", { name: "A stronger rewritten headline 的新聞圖片" }).getAttribute("src")).toBe(
+      current.imageUrl,
     );
     expect(
       screen.getAllByRole("link", { name: /所有已核准報道/u }).every((link) => link.getAttribute("href") === "/"),
