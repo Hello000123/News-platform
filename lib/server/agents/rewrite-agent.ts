@@ -14,6 +14,7 @@ import {
   REWRITE_SYSTEM_PROMPT,
   requiredOutputLanguageFor,
   SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
+  sourceLead,
 } from "@/lib/server/agents/prompts";
 import {
   validateQuotationPreservation,
@@ -202,9 +203,18 @@ function validateSafeCandidate(
     );
   }
 
-  const missingMixedLanguageTerm = extractVerbatimMixedLanguageTerms(source.primaryText).find(
-    (term) => !candidate.includes(term),
-  );
+  // Summary briefs legitimately compress body detail, so verbatim-fidelity terms,
+  // names, and numbers are required only from the source lead. Fabrication guards
+  // (untraceable numbers) still scan the full corpus below.
+  const fidelityText = context.relaxedFidelity
+    ? sourceLead(source.primaryText)
+    : source.primaryText;
+  const minimumTermLength = context.relaxedFidelity ? 5 : 0;
+
+  const missingMixedLanguageTerm = extractVerbatimMixedLanguageTerms(
+    fidelityText,
+    minimumTermLength,
+  ).find((term) => !candidate.includes(term));
   if (missingMixedLanguageTerm) {
     throw new AppError(
       "INEXACT_MIXED_LANGUAGE_TERM",
@@ -223,7 +233,7 @@ function validateSafeCandidate(
     );
   }
 
-  const missingSourceScriptNames = extractVerbatimSourceScriptNames(source.primaryText).filter(
+  const missingSourceScriptNames = extractVerbatimSourceScriptNames(fidelityText).filter(
     (name) => !candidate.includes(name),
   );
   if (missingSourceScriptNames.length > 0) {
@@ -250,7 +260,7 @@ function validateSafeCandidate(
     );
   }
 
-  const requiredNumericValues = extractComparableNumericValues(source.primaryText);
+  const requiredNumericValues = extractComparableNumericValues(fidelityText);
   const outputNumericValues = new Set([
     ...extractComparableNumericValues(candidate),
     ...(requiredOutputLanguageFor(source.primaryText, context.outputLanguage) === "English"
@@ -404,13 +414,25 @@ function namedQuotationAttributionError(
   candidateText: string,
   validation: ReturnType<typeof validateQuotationPreservation>,
   attempts: number,
+  relaxed = false,
 ) {
   if (!validation.valid) return null;
 
   const protectedAttributions = validation.sourceDirectQuotations.flatMap(
     (quotation): NamedQuotationAttribution[] => {
       const speaker = namedSpeakerForQuotation(sourceText, quotation);
-      return speaker ? [{ speaker, quotation }] : [];
+      if (!speaker) return [];
+      // A summary brief may omit a body quotation entirely. Only enforce the
+      // named-speaker attribution for quotations the rewrite actually includes.
+      if (
+        relaxed &&
+        !validation.rewriteQuotations.some(
+          (candidate) => candidate.canonicalContent === quotation.canonicalContent,
+        )
+      ) {
+        return [];
+      }
+      return [{ speaker, quotation }];
     },
   );
   if (protectedAttributions.length === 0) return null;
@@ -534,6 +556,20 @@ function quotationError(
   );
 }
 
+/**
+ * Summary briefs may drop body quotations. In relaxed mode a validation result
+ * passes when every unresolved issue is an omitted quotation; altered,
+ * invented, or misattributed quotations remain failures.
+ */
+function quotationValidationPasses(
+  validation: ReturnType<typeof validateQuotationPreservation>,
+  context: RewriteContext,
+) {
+  if (validation.valid) return true;
+  if (!context.relaxedFidelity) return false;
+  return validation.issues.every((issue) => issue.kind === "omitted");
+}
+
 async function generateCandidate(
   userPrompt: string,
   completionRunner: CompletionRunner,
@@ -587,6 +623,7 @@ export async function runRewriteAgent(
       firstCandidate,
       firstQuotationValidation,
       1,
+      context.relaxedFidelity,
     );
   }
   const firstIssues = publicQuotationIssues(
@@ -595,7 +632,7 @@ export async function runRewriteAgent(
   );
   const firstIsUnchanged = isEditingBaselineEcho(firstCandidate, source, context);
 
-  if (!firstSafetyError && firstQuotationValidation.valid && !firstIsUnchanged) {
+  if (!firstSafetyError && quotationValidationPasses(firstQuotationValidation, context) && !firstIsUnchanged) {
     return rewriteApiResponseSchema.parse({
       finalText: firstCandidate,
       validation: { status: "passed", attempts: 1 },
@@ -684,7 +721,7 @@ export async function runRewriteAgent(
     source.primaryText,
     secondCandidate,
   );
-  if (!secondQuotationValidation.valid) {
+  if (!quotationValidationPasses(secondQuotationValidation, context)) {
     const punctuationRepairedCandidate = repairPunctuationOnlyQuotations(
       secondCandidate,
       secondQuotationValidation,
@@ -706,9 +743,10 @@ export async function runRewriteAgent(
         punctuationRepairedCandidate,
         repairedValidation,
         2,
+        context.relaxedFidelity,
       );
       if (
-        repairedValidation.valid &&
+        quotationValidationPasses(repairedValidation, context) &&
         !untraceableRepairedQuotation &&
         !repairedAttributionError
       ) {
@@ -735,6 +773,7 @@ export async function runRewriteAgent(
     secondCandidate,
     secondQuotationValidation,
     2,
+    context.relaxedFidelity,
   );
   if (secondAttributionError) throw secondAttributionError;
 

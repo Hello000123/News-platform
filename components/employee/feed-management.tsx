@@ -8,8 +8,10 @@ import {
   FeedRequestError,
   fetchAllFeeds,
   fetchFeed,
+  getFeedSchedule,
   listFeeds,
   updateFeed,
+  updateFeedSchedule,
 } from "@/lib/client/feeds-api";
 import type { FeedView } from "@/lib/shared/feeds-contracts";
 
@@ -37,6 +39,22 @@ export function FeedManagement() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [editing, setEditing] = useState<EditingState | null>(null);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleInterval, setScheduleInterval] = useState(360);
+  const [scheduleLastFetch, setScheduleLastFetch] = useState<number | null>(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  function loadSchedule() {
+    getFeedSchedule()
+      .then((settings) => {
+        setScheduleEnabled(settings.enabled);
+        setScheduleInterval(settings.intervalMinutes);
+        setScheduleLastFetch(settings.lastAutoFetchAt);
+      })
+      .catch(() => {
+        // Schedule settings may not exist yet; defaults are fine.
+      });
+  }
 
   function loadFeeds() {
     setLoading(true);
@@ -58,6 +76,7 @@ export function FeedManagement() {
     queueMicrotask(() => {
       if (cancelled) return;
       loadFeeds();
+      loadSchedule();
     });
     return () => {
       cancelled = true;
@@ -218,6 +237,31 @@ export function FeedManagement() {
     }
   }
 
+  async function handleSaveSchedule(event: FormEvent) {
+    event.preventDefault();
+    setScheduleSaving(true);
+    setErrorMessage("");
+    setNotice(null);
+    try {
+      const result = await updateFeedSchedule({
+        enabled: scheduleEnabled,
+        intervalMinutes: scheduleInterval,
+      });
+      setScheduleEnabled(result.enabled);
+      setScheduleInterval(result.intervalMinutes);
+      setScheduleLastFetch(result.lastAutoFetchAt);
+      setNotice("Schedule settings saved.");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof FeedRequestError
+          ? error.message
+          : "Schedule settings could not be saved.",
+      );
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
   return (
     <section className="feed-management" aria-labelledby="feed-management-heading">
       <div className="feed-management-heading">
@@ -229,7 +273,11 @@ export function FeedManagement() {
             pipeline for rewriting and human review.
           </p>
         </div>
-        <button
+        <div className="feed-management-heading-actions">
+          <a href="/pipeline" className="button button-secondary">
+            Open pipeline →
+          </a>
+          <button
           className="button button-secondary"
           type="button"
           onClick={handleFetchAll}
@@ -237,6 +285,7 @@ export function FeedManagement() {
         >
           Fetch all feeds now
         </button>
+        </div>
       </div>
 
       <form className="feed-add-form" onSubmit={handleAddFeed}>
@@ -409,6 +458,52 @@ export function FeedManagement() {
             ),
           )}
         </div>
+      ) : null}
+
+      {!loading ? (
+        <form className="feed-schedule-section" onSubmit={handleSaveSchedule}>
+          <div className="section-kicker">Schedule</div>
+          <h3>Automatic feed polling</h3>
+          <p>
+            The Cloudflare Worker cron triggers at midnight UTC daily. When
+            enabled, each trigger checks whether the interval below has elapsed
+            since the last auto-fetch.
+            Last auto-fetch: {formattedDate(scheduleLastFetch)}.
+          </p>
+          <div className="feed-schedule-controls">
+            <label className="feed-schedule-toggle">
+              <input
+                type="checkbox"
+                checked={scheduleEnabled}
+                onChange={(event) => setScheduleEnabled(event.target.checked)}
+                disabled={scheduleSaving}
+              />
+              <span>Enable scheduled fetching</span>
+            </label>
+            <label className="input-label" htmlFor="schedule-interval">
+              Interval
+            </label>
+            <select
+              id="schedule-interval"
+              className="text-input"
+              value={scheduleInterval}
+              onChange={(event) => setScheduleInterval(Number(event.target.value))}
+              disabled={scheduleSaving || !scheduleEnabled}
+            >
+              <option value={60}>Every hour</option>
+              <option value={360}>Every 6 hours</option>
+              <option value={720}>Every 12 hours</option>
+              <option value={1440}>Every 24 hours</option>
+            </select>
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={scheduleSaving}
+            >
+              {scheduleSaving ? "Saving…" : "Save schedule"}
+            </button>
+          </div>
+        </form>
       ) : null}
     </section>
   );

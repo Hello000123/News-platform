@@ -225,17 +225,17 @@ export async function listPipelineArticles(
   const statement = status
     ? database
         .prepare(
-          `${ARTICLE_SELECT}
-           WHERE article.status = ?
-             AND article.merged_into_article_id IS NULL
-           ORDER BY article.created_at DESC
-           LIMIT 200`,
+           `${ARTICLE_SELECT}
+            WHERE article.status = ?
+              AND article.merged_into_article_id IS NULL
+            ORDER BY article.updated_at DESC
+            LIMIT 200`,
         )
         .bind(status)
     : database.prepare(
         `${ARTICLE_SELECT}
          WHERE article.merged_into_article_id IS NULL
-         ORDER BY article.created_at DESC
+         ORDER BY article.updated_at DESC
          LIMIT 200`,
       );
   const result = await statement.all<PipelineArticleRow>();

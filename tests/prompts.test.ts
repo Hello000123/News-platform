@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT,
+  createQuotationCorrectionPrompt,
   createReviewSystemPrompt,
   createReviewUserPrompt,
+  createRewriteValidationCorrectionPrompt,
   createRewriteUserPrompt,
+  createUnchangedRewriteCorrectionPrompt,
   determineRequiredOutputLanguage,
   extractNumericValues,
   extractComparableNumericValues,
@@ -15,6 +19,7 @@ import {
   preservesRequiredOutputLanguage,
   QUOTATION_CORRECTION_SYSTEM_PROMPT,
   REWRITE_SYSTEM_PROMPT,
+  SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
 } from "@/lib/server/agents/prompts";
 import type { SourceSnapshot } from "@/lib/shared/contracts";
 import { highReview } from "@/tests/fixtures/reviews";
@@ -34,6 +39,36 @@ const editorialSource: SourceSnapshot = {
 
 function embeddedJson(prompt: string) {
   return JSON.parse(prompt.slice(prompt.indexOf("{"))) as Record<string, unknown>;
+}
+
+const rewriteInstructionLatinAllowlist = new Set([
+  "JSON",
+  "allowedNumericValues",
+  "concise",
+  "currentRefinement",
+  "currentTurn",
+  "earlierTurns",
+  "imageContext",
+  "lengthOption",
+  "linkedText",
+  "more_detailed",
+  "null",
+  "original",
+  "outputLanguage",
+  "primaryText",
+  "requiredOutputLanguage",
+  "rewriteContext",
+  "rewriteSession",
+  "traditional_chinese",
+  "verbatimDirectQuotations",
+  "verbatimMixedLanguageTerms",
+  "verbatimSourceScriptNames",
+]);
+
+function unexpectedInstructionLatinTokens(text: string) {
+  return Array.from(new Set(text.match(/[A-Za-z][A-Za-z0-9_]*/gu) ?? []))
+    .filter((token) => !rewriteInstructionLatinAllowlist.has(token))
+    .sort();
 }
 
 describe("agent prompts", () => {
@@ -125,40 +160,63 @@ describe("agent prompts", () => {
 
   it("makes source authority, genuine editing, quotation fidelity, and format explicit", () => {
     for (const rule of [
-      "publication-quality news report",
-      "primaryText is the article to rewrite and controls its factual meaning",
-      "Review feedback and earlier AI rewrites are editorial context",
-      "Preserve material facts, names, titles, dates, locations, figures",
-      "Never romanize or transliterate a Chinese name",
-      "Every digit-containing output value must trace exactly to allowedNumericValues",
-      "Every entry in verbatimDirectQuotations is mandatory direct speech",
-      "Preserve its quoted wording exactly",
-      "Do not turn paraphrased or indirect speech into a new direct quotation",
-      "Every entry in verbatimMixedLanguageTerms must remain character-for-character",
-      "Write an accurate headline, a strong lead, and an inverted-pyramid body",
-      "Do not replace words solely to make the output look different",
-      "an exact, whitespace-only, or punctuation-only echo of primaryText is not a rewrite",
-      "requiredOutputLanguage is derived automatically from primaryText",
-      "Only currentRefinement.lengthOption controls this response",
-      "For concise, produce a shorter, more direct version",
-      "For more_detailed, expand only with information explicitly present",
-      "Never fabricate detail to add length",
-      "latest instruction wins",
-      "Never convert a relative time expression into an exact calendar date",
-      "one headline, one blank line, then the article body",
-      "No markdown, score, commentary, preface, byline, or outlet attribution",
+      "達到刊登質素的新聞報道",
+      "primaryText 是要改寫的文章，並主導其事實含義",
+      "審稿意見和較早的人工智能改寫只屬編採脈絡",
+      "保留重要事實、人名、職銜、日期、地點、數字",
+      "不得把中文人名羅馬化或音譯",
+      "每個含數字的值都必須可精確追溯至 allowedNumericValues",
+      "verbatimDirectQuotations 中每個項目都是必須保留的直接引文",
+      "逐字保留引文內容",
+      "不得把意譯或間接引語改成新的直接引文",
+      "verbatimMixedLanguageTerms 中每個項目都必須逐字保留",
+      "撰寫準確標題、有力導語，以及採用倒金字塔結構的正文",
+      "不要只為令輸出看來不同而換字",
+      "與 primaryText 完全相同、只改空白或只改標點的稿件不算改寫",
+      "requiredOutputLanguage 會按 primaryText 自動判定",
+      "只有 currentRefinement.lengthOption 控制本次回應",
+      "選用 concise 時，提供更短、更直接的版本",
+      "選用 more_detailed 時，只可使用來源資料或使用者指示中明確出現的資訊作擴寫",
+      "絕不可為增加篇幅而捏造細節",
+      "以最新指示為準",
+      "不得把相對時間表述轉為確實曆日",
+      "一行標題、一個空白行，然後是文章正文",
+      "不得加入標記格式、評分、評論、前言、署名或媒體歸屬",
     ]) {
       expect(REWRITE_SYSTEM_PROMPT).toContain(rule);
     }
     expect(QUOTATION_CORRECTION_SYSTEM_PROMPT).toContain(
-      "copy it character-for-character into the corresponding passage",
+      "逐字複製到相應段落",
     );
     expect(QUOTATION_CORRECTION_SYSTEM_PROMPT).toContain(
-      "Never translate, paraphrase, split, merge",
+      "絕不可翻譯、意譯、拆分、合併",
     );
     expect(FORMAT_CORRECTION_SYSTEM_PROMPT).toContain(
-      "do not merely move the source's first sentence into the headline",
+      "不得只是把來源首句移作標題",
     );
+    expect(SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT).toContain(
+      "只負責修正來源忠實度的機械式校正器",
+    );
+    expect(CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT).toContain(
+      "正在修正未能擺脫來源複製的稿件",
+    );
+  });
+
+  it("keeps authored rewrite instructions in Traditional Chinese except machine identifiers", () => {
+    const initialPromptPreamble = createRewriteUserPrompt(editorialSource, null).split(
+      "\n\n{",
+      1,
+    )[0];
+    const instructionPrompts = [
+      REWRITE_SYSTEM_PROMPT,
+      QUOTATION_CORRECTION_SYSTEM_PROMPT,
+      SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
+      FORMAT_CORRECTION_SYSTEM_PROMPT,
+      CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT,
+      initialPromptPreamble,
+    ];
+
+    expect(instructionPrompts.flatMap(unexpectedInstructionLatinTokens)).toEqual([]);
   });
 
   it("sends the full source snapshot, review feedback, and detected language to rewrite", () => {
@@ -178,9 +236,9 @@ describe("agent prompts", () => {
       };
     };
 
-    expect(prompt).toContain("explicitly requested a rewrite regardless of review score");
-    expect(prompt).toContain("LANGUAGE LOCK: Traditional Chinese");
-    expect(payload.requiredOutputLanguage).toMatch(/^Traditional Chinese/);
+    expect(prompt).toContain("已明確要求改寫，不論審稿分數如何");
+    expect(prompt).toContain("語言鎖定：繁體中文");
+    expect(payload.requiredOutputLanguage).toMatch(/^繁體中文/);
     expect(payload.allowedNumericValues).toEqual(["7", "16", "20", "24"]);
     expect(payload.verbatimDirectQuotations).toEqual(["「計劃會繼續。」"]);
     expect(payload.verbatimMixedLanguageTerms).toContain("Blue Harbour AI");
@@ -191,6 +249,48 @@ describe("agent prompts", () => {
       currentTurn: null,
       currentRefinement: { lengthOption: null, instruction: "" },
     });
+  });
+
+  it("uses Traditional-Chinese instructions for quotation, echo, and validation corrections", () => {
+    const quotationPrompt = createQuotationCorrectionPrompt(
+      "測試標題\n\n發言人說：「已改動。」",
+      [
+        {
+          kind: "modified",
+          original: "「計劃會繼續。」",
+          rewrite: "「已改動。」",
+          sourceParagraph: 1,
+          rewriteParagraph: 2,
+          sourceExcerpt: "發言人表示：「計劃會繼續。」",
+          differenceSummary: "引文內容不同。",
+          action: "逐字還原來源引文。",
+        },
+      ],
+      editorialSource,
+    );
+    const unchangedPrompt = createUnchangedRewriteCorrectionPrompt(
+      editorialSource.primaryText,
+      editorialSource,
+      highReview,
+    );
+    const validationPrompt = createRewriteValidationCorrectionPrompt(
+      "測試標題",
+      {
+        code: "INVALID_REWRITE_FORMAT",
+        message: "The candidate did not use the required format.",
+      },
+      editorialSource,
+      highReview,
+    );
+
+    expect(quotationPrompt).toContain("只處理以下不符的引文：");
+    expect(quotationPrompt).toContain("候選稿件：");
+    expect(unchangedPrompt).toContain("候選稿與現行編輯基準完全相同");
+    expect(unchangedPrompt).toContain("語言鎖定：繁體中文");
+    expect(validationPrompt).toContain("只限一次修正");
+    expect(validationPrompt).toContain("候選稿沒有採用一行標題");
+    expect(validationPrompt).toContain("INVALID_REWRITE_FORMAT");
+    expect(validationPrompt).not.toContain("The candidate did not use the required format.");
   });
 
   it("sends the current version, ordered prior turns, all instructions, and latest preference", () => {
@@ -324,7 +424,7 @@ describe("agent prompts", () => {
       outputLanguage: "traditional_chinese",
     });
 
-    expect(prompt).toContain("LANGUAGE LOCK: Traditional Chinese");
+    expect(prompt).toContain("語言鎖定：繁體中文");
     expect(
       preservesRequestedOutputLanguage(
         englishDraft,

@@ -188,15 +188,17 @@ export const reviewRequestSchema = editorialInputSchema;
 export const rewriteLengthOptionSchema = z.enum(["concise", "more_detailed"]);
 
 /**
- * Most editor workflows preserve the source language. The news pipeline can
- * explicitly request a Traditional Chinese edition while keeping source facts
- * and direct quotations traceable for human review.
+ * The core agent can preserve the source language, while user-facing rewrite
+ * routes default to a Traditional Chinese edition and keep source facts and
+ * direct quotations traceable for human review.
  */
 export const rewriteOutputLanguageSchema = z.enum([
   "source",
   "traditional_chinese",
 ]);
 export type RewriteOutputLanguage = z.infer<typeof rewriteOutputLanguageSchema>;
+export const DEFAULT_REWRITE_OUTPUT_LANGUAGE: RewriteOutputLanguage =
+  "traditional_chinese";
 
 export const rewriteInstructionSchema = z
   .string()
@@ -245,6 +247,11 @@ export const rewriteContextSchema = z
       instruction: "",
     }),
     outputLanguage: rewriteOutputLanguageSchema.optional(),
+    // Summary briefs (such as the pipeline's top-five batch) legitimately
+    // compress body detail. When enabled, verbatim-fidelity checks apply to the
+    // source lead only; anti-fabrication checks (invented numbers/quotes) stay
+    // strict against the full source.
+    relaxedFidelity: z.boolean().optional(),
   })
   .strict();
 

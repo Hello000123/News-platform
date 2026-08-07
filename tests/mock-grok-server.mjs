@@ -203,12 +203,12 @@ const server = createServer((request, response) => {
       payload.rewriteSession?.currentRefinement?.instruction ?? "",
     ).trim();
     const requiredLanguage = String(payload.requiredOutputLanguage ?? "");
-    const headline = requiredLanguage.startsWith("Traditional Chinese")
+    const headline = requiredLanguage.startsWith("繁體中文")
       ? "經審閱整理的新聞報道"
-      : requiredLanguage.startsWith("Simplified Chinese")
+      : requiredLanguage.startsWith("簡體中文")
         ? "经审阅整理的新闻报道"
         : "News report based on the reviewed draft";
-    const bodyPrefix = requiredLanguage.startsWith("Traditional Chinese")
+    const bodyPrefix = requiredLanguage.startsWith("繁體中文")
       ? lengthOption === "concise"
         ? "精簡編輯："
         : lengthOption === "more_detailed"
@@ -216,7 +216,7 @@ const server = createServer((request, response) => {
           : instruction
             ? "按意見再編輯："
             : "經編輯報道："
-      : requiredLanguage.startsWith("Simplified Chinese")
+      : requiredLanguage.startsWith("簡體中文")
         ? lengthOption === "concise"
           ? "精简编辑："
           : lengthOption === "more_detailed"

@@ -17,6 +17,7 @@ import type {
   ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
 import type { SelectableModelId } from "@/lib/shared/models";
+import { POPULAR_PIPELINE_REWRITE_INSTRUCTION } from "@/lib/shared/pipeline-rewrite-instructions";
 
 type Filter = PipelineArticleStatus | "all";
 
@@ -250,8 +251,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
             model,
             outputLanguage: "traditional_chinese",
             relatedArticleIds: story.relatedArticleIds,
-            instruction:
-              "Create one clear Traditional Chinese news report for human editorial review. Use only supported, non-conflicting facts from the clustered reports.",
+            instruction: POPULAR_PIPELINE_REWRITE_INSTRUCTION,
           });
           rewrittenCount += 1;
           mergedCount += Math.max(story.reportCount - 1, 0);
@@ -446,7 +446,11 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                 <span className="pipeline-list-item-title">{article.title}</span>
                 <span className="pipeline-list-item-meta">
                   {article.feedName}
-                  {article.pubDate ? ` · ${formattedDate(article.pubDate)}` : ""}
+                  {article.status !== "new" && article.updatedAt
+                    ? ` · ${formattedDate(article.updatedAt)}`
+                    : article.pubDate
+                      ? ` · ${formattedDate(article.pubDate)}`
+                      : ""}
                 </span>
                 <span className={`status-badge status-${article.status}`}>
                   {article.status}
@@ -463,7 +467,12 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                   <h2>{selectedArticle.title}</h2>
                   <p>
                     {selectedArticle.author ? `${selectedArticle.author} · ` : ""}
-                    Published {formattedDate(selectedArticle.pubDate)}
+                    {selectedArticle.pubDate
+                      ? `Published ${formattedDate(selectedArticle.pubDate)}`
+                      : ""}
+                    {selectedArticle.status !== "new" && selectedArticle.updatedAt
+                      ? ` · ${selectedArticle.status === "rewritten" ? "Rewritten" : selectedArticle.status === "approved" ? "Approved" : "Discarded"} ${formattedDate(selectedArticle.updatedAt)}`
+                      : ""}
                   </p>
                 </div>
                 <span className={`status-badge status-${selectedArticle.status}`}>
