@@ -171,4 +171,13 @@ describe("NewsHomepage rendering", () => {
       "https://images.example.com/lead.webp",
     );
   });
+
+  it("places the lead key-point index in the hero grid instead of the copy column", () => {
+    const { container } = render(<NewsHomepage view={buildHomepageView([article(0)])} />);
+    const leadIndex = container.querySelector(".news-v1-lead-index");
+
+    expect(leadIndex).toBeTruthy();
+    expect(leadIndex?.parentElement?.classList.contains("news-v1-hero")).toBe(true);
+    expect(leadIndex?.parentElement?.classList.contains("news-v1-hero-copy")).toBe(false);
+  });
 });

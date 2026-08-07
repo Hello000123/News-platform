@@ -70,6 +70,18 @@ describe("public article content helpers", () => {
     );
   });
 
+  it("turns long body paragraphs into compact clause-based key points", () => {
+    const source = article(1, {
+      rewrittenText:
+        "Article headline 1\n\n新介面仿效 Google Lens 的「搜尋」、「翻譯」、「即時」及「創作」切換器，在畫面底部加入工具列，讓用戶可在不同模式之間切換。\n\n「搜尋」模式採用全新的四條波形動畫設計，用戶說話時頂端會顯示轉錄文字，完成查詢後按下一步箭頭即可。",
+    });
+
+    expect(extractArticleKeyPoints(source)).toEqual([
+      "新介面仿效 Google Lens 的「搜尋」、「翻譯」、「即時」及「創作」切換器",
+      "「搜尋」模式採用全新的四條波形動畫設計",
+    ]);
+  });
+
   it("ranks same-feed related stories first with no current or duplicate article", () => {
     const current = article(0);
     const ranked = selectRelatedArticles(current, [

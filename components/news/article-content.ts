@@ -1,7 +1,9 @@
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 
 const SUMMARY_MAX_LENGTH = 240;
-const KEY_POINT_MAX_LENGTH = 88;
+const KEY_POINT_PREFERRED_LENGTH = 44;
+const KEY_POINT_MAX_LENGTH = 64;
+const KEY_POINT_MIN_CLAUSE_LENGTH = 18;
 
 export function normalizeArticleText(value: string) {
   return value.replace(/\s+/gu, " ").trim();
@@ -50,10 +52,34 @@ export function extractArticleSummary(article: PipelineArticleView) {
     : null;
 }
 
+function compactArticleKeyPoint(paragraph: string) {
+  const normalized = normalizeArticleText(paragraph);
+  const sentenceBoundary = normalized.match(/[。！？!?]|\.(?=\s|$)/u);
+  const firstSentence = sentenceBoundary?.index === undefined
+    ? normalized
+    : normalized.slice(0, sentenceBoundary.index + sentenceBoundary[0].length);
+
+  if (firstSentence.length <= KEY_POINT_PREFERRED_LENGTH) return firstSentence;
+
+  let clauseBoundary = -1;
+  for (const match of firstSentence.slice(0, KEY_POINT_MAX_LENGTH + 1).matchAll(/[，,；;：:]/gu)) {
+    if (match.index < KEY_POINT_MIN_CLAUSE_LENGTH) continue;
+    clauseBoundary = match.index;
+    break;
+  }
+  if (clauseBoundary >= KEY_POINT_MIN_CLAUSE_LENGTH) {
+    return firstSentence.slice(0, clauseBoundary).trim();
+  }
+
+  if (firstSentence.length <= KEY_POINT_MAX_LENGTH) return firstSentence;
+
+  return truncateArticleText(firstSentence, KEY_POINT_MAX_LENGTH);
+}
+
 export function extractArticleKeyPoints(article: PipelineArticleView) {
   return articleBodyParagraphs(article)
     .slice(0, 3)
-    .map((paragraph) => truncateArticleText(paragraph, KEY_POINT_MAX_LENGTH))
+    .map(compactArticleKeyPoint)
     .filter(Boolean);
 }
 

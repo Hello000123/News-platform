@@ -537,8 +537,6 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
                 PressReady 將通過編輯流程的報道整理成清晰、可閱讀的公開新聞。
               </p>
             </aside>
-
-            {view.lead ? <LeadIndex keyPoints={view.lead.keyPoints} /> : null}
           </article>
 
           <div className="news-v1-hero-media">
@@ -564,6 +562,8 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
               </div>
             )}
           </div>
+
+          {view.lead ? <LeadIndex keyPoints={view.lead.keyPoints} /> : null}
 
           {view.related.length > 0 ? (
             <div className="news-v1-hero-support" aria-label="延伸閱讀">
