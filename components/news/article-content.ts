@@ -82,7 +82,15 @@ export function selectRelatedArticles(
     seen.add(article.id);
     return true;
   });
-  const sameFeed = unique.filter((article) => article.feedId === currentArticle.feedId);
-  const otherFeeds = unique.filter((article) => article.feedId !== currentArticle.feedId);
-  return [...sameFeed, ...otherFeeds].slice(0, safeLimit);
+  const sameCategory = currentArticle.category
+    ? unique.filter((article) => article.category === currentArticle.category)
+    : [];
+  const sameCategoryIds = new Set(sameCategory.map(({ id }) => id));
+  const sameFeed = unique.filter(
+    (article) =>
+      !sameCategoryIds.has(article.id) && article.feedId === currentArticle.feedId,
+  );
+  const rankedIds = new Set([...sameCategory, ...sameFeed].map(({ id }) => id));
+  const otherArticles = unique.filter((article) => !rankedIds.has(article.id));
+  return [...sameCategory, ...sameFeed, ...otherArticles].slice(0, safeLimit);
 }

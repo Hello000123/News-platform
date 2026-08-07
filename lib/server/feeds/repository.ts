@@ -10,6 +10,7 @@ import type {
   FeedUpdateInput,
   FeedView,
   PipelineArticlePostUpdate,
+  NewsCategory,
   PipelineArticleStatus,
   PipelineArticleView,
   PopularPipelineStory,
@@ -41,6 +42,7 @@ interface PipelineArticleRow {
   rewritten_text: string | null;
   source_text: string | null;
   image_url: string | null;
+  category: NewsCategory | null;
   merged_into_article_id: string | null;
   published_at: number | null;
   created_at: number;
@@ -75,6 +77,7 @@ function mapArticle(row: PipelineArticleRow): PipelineArticleView {
     rewrittenText: row.rewritten_text,
     sourceText: row.source_text,
     imageUrl: row.image_url,
+    category: row.category,
     mergedIntoArticleId: row.merged_into_article_id,
     publishedAt: row.published_at,
     createdAt: row.created_at,
@@ -101,6 +104,7 @@ const ARTICLE_SELECT = `
     article.rewritten_text,
     article.source_text,
     article.image_url,
+    article.category,
     article.merged_into_article_id,
     article.published_at,
     article.created_at,
@@ -259,6 +263,28 @@ export async function listPublicArticles(database: D1Database, limit = 100) {
        LIMIT ?`,
     )
     .bind(safeLimit)
+    .all<PipelineArticleRow>();
+  return result.results.map(mapArticle);
+}
+
+export async function listPublicArticlesByCategory(
+  database: D1Database,
+  category: NewsCategory,
+  limit = 100,
+) {
+  const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 100);
+  const result = await database
+    .prepare(
+      `${ARTICLE_SELECT}
+       WHERE article.status = 'approved'
+         AND article.category = ?
+         AND article.rewritten_text IS NOT NULL
+         AND length(trim(article.rewritten_text)) > 0
+         AND article.merged_into_article_id IS NULL
+       ORDER BY COALESCE(article.published_at, article.pub_date, article.created_at) DESC
+       LIMIT ?`,
+    )
+    .bind(category, safeLimit)
     .all<PipelineArticleRow>();
   return result.results.map(mapArticle);
 }
@@ -558,6 +584,10 @@ export async function updatePipelineArticlePost(
   if (input.imageUrl !== undefined) {
     assignments.push("image_url = ?");
     values.push(input.imageUrl);
+  }
+  if (input.category !== undefined) {
+    assignments.push("category = ?");
+    values.push(input.category);
   }
   if (input.status !== undefined) {
     assignments.push("status = ?");

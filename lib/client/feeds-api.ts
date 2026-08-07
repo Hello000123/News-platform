@@ -255,3 +255,26 @@ export function updatePipelineArticlePost(
     },
   );
 }
+
+export function uploadPipelineArticleImage(id: string, file: File) {
+  const formData = new FormData();
+  formData.set("file", file);
+  return requestJson<{ article: PipelineArticleView; imageUrl: string }>(
+    `/api/pipeline/articles/${encodeURIComponent(id)}/image`,
+    {
+      method: "POST",
+      headers: csrfHeaders(),
+      body: formData,
+    },
+  );
+}
+
+export function removePipelineArticleImage(id: string) {
+  return requestJson<{ article: PipelineArticleView }>(
+    `/api/pipeline/articles/${encodeURIComponent(id)}/image`,
+    {
+      method: "DELETE",
+      headers: csrfHeaders(),
+    },
+  );
+}

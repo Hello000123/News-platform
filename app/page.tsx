@@ -19,7 +19,7 @@ export default async function HomePage() {
   let articles: PipelineArticleView[] = [];
 
   try {
-    articles = await listPublicArticles(getDatabase(), 15);
+    articles = await listPublicArticles(getDatabase(), 100);
   } catch {
     // The public prototype remains usable before its D1 binding is configured.
   }

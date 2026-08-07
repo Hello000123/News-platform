@@ -148,12 +148,24 @@ without uploading to R2:
 Each run writes `.tmp/YYYY-MM-DD/combined.json`. Sign in to the website, open
 `/pipeline`, and choose **Import scraper JSON** to upload that file. The application
 stores each article's saved text and optional image in the same pipeline used by the
-site: **import → rewrite with AI → edit the post and featured image → publish to the
-homepage**. The first paragraph of the finished rewrite becomes the public headline;
-editors can save a draft, publish it directly, update a live post, or remove it from
-the homepage from the same composer. Imported source
+site: **import → rewrite with AI → edit the public headline, story, category, and
+featured image → publish**. Editors can upload their own PNG, JPEG, or WebP photo (up
+to 10 MB), replace or remove it, or use the advanced public-URL fallback. They can
+publish to the homepage only or also archive the story under **科技** (`/technology`)
+or **社企專欄** (`/social-enterprise`). A live post remains editable in the same
+composer, and can be updated or removed from the public site without creating a
+duplicate. Imported source
 feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
 fetch their placeholder URLs.
+
+Apply the latest D1 migration before using the category and uploaded-photo workflow:
+
+    npm run db:migrate:local
+
+The production environment requires the matching `npm run db:migrate:remote` during
+the normal deployment procedure. Uploaded post photos use the existing private
+`ACCOUNT_DOCUMENTS` R2 binding under an isolated `news-images/` namespace and are
+served through opaque, cacheable public image URLs.
 
 The copied scraper can also run on its existing 30-minute Docker schedule with
 `docker compose up -d --build`. Its local output is still imported through the Pipeline

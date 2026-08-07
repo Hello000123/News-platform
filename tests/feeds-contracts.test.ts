@@ -76,14 +76,24 @@ describe("feeds contracts", () => {
       pipelineArticlePostUpdateSchema.parse({
         rewrittenText: "  Homepage headline\n\nHomepage copy.  ",
         imageUrl: "https://images.example.com/story.webp",
+        category: "technology",
         status: "approved",
       }),
     ).toEqual({
       rewrittenText: "Homepage headline\n\nHomepage copy.",
       imageUrl: "https://images.example.com/story.webp",
+      category: "technology",
       status: "approved",
     });
     expect(pipelineArticlePostUpdateSchema.parse({ imageUrl: "" }).imageUrl).toBeNull();
+    expect(
+      pipelineArticlePostUpdateSchema.parse({
+        imageUrl: "/api/news-images/8f0ec19394554203a99a9ab6c1216aa2?v=1786123456",
+      }).imageUrl,
+    ).toBe("/api/news-images/8f0ec19394554203a99a9ab6c1216aa2?v=1786123456");
+    expect(
+      pipelineArticlePostUpdateSchema.parse({ category: "social-enterprise" }).category,
+    ).toBe("social-enterprise");
     expect(() => pipelineArticlePostUpdateSchema.parse({})).toThrow();
     expect(() =>
       pipelineArticlePostUpdateSchema.parse({ imageUrl: "javascript:alert(1)" }),
@@ -92,6 +102,9 @@ describe("feeds contracts", () => {
       pipelineArticlePostUpdateSchema.parse({
         imageUrl: "https://user:password@images.example.com/story.webp",
       }),
+    ).toThrow();
+    expect(() =>
+      pipelineArticlePostUpdateSchema.parse({ category: "general" }),
     ).toThrow();
   });
 

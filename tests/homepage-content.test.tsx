@@ -40,6 +40,7 @@ function article(index: number, overrides: Partial<PipelineArticleView> = {}): P
     author: "PressReady Desk",
     pubDate: 1_780_000_000 - index,
     status: "approved",
+    category: index % 2 === 0 ? "technology" : "social-enterprise",
     rewrittenText: `Story ${index} headline\n\nThe first body paragraph for story ${index} includes the key context.\n\nA second body paragraph adds another verified detail.\n\nA third body paragraph provides the closing note.`,
     createdAt: 1_780_000_000 - index,
     updatedAt: 1_780_000_000 - index,
@@ -50,57 +51,48 @@ function article(index: number, overrides: Partial<PipelineArticleView> = {}): P
 describe("PressReady homepage view model", () => {
   afterEach(cleanup);
 
-  it("assigns the 15 article slots in order without duplicates", () => {
+  it("keeps every approved article in the chronological stream without duplicates", () => {
     const view = buildHomepageView([
       article(0),
       article(0, { title: "Duplicate should be ignored" }),
       ...Array.from({ length: 17 }, (_, index) => article(index + 1)),
     ]);
-    const ids = [
-      view.lead?.article.id,
-      ...view.related.map(({ article: item }) => item.id),
-      ...view.featureColumns.flat().map(({ article: item }) => item.id),
-      ...view.latest.map(({ article: item }) => item.id),
-    ].filter((id): id is string => Boolean(id));
+    const ids = view.latest.map(({ article: item }) => item.id);
 
-    expect(ids).toHaveLength(15);
-    expect(new Set(ids).size).toBe(15);
+    expect(ids).toHaveLength(18);
+    expect(new Set(ids).size).toBe(18);
     expect(view.lead?.article.id).toBe("article-0");
     expect(view.related.map(({ article: item }) => item.id)).toEqual([
       "article-1",
       "article-2",
     ]);
-    expect(view.featureColumns).toHaveLength(2);
-    expect(view.featureColumns.map((column) => column.map(({ article: item }) => item.id))).toEqual([
-      ["article-3", "article-4", "article-5"],
-      ["article-6", "article-7", "article-8"],
-    ]);
-    expect(view.latest.map(({ article: item }) => item.id)).toEqual([
-      "article-9",
-      "article-10",
-      "article-11",
-      "article-12",
-      "article-13",
-      "article-14",
+    expect(view.categoryShelves).toHaveLength(2);
+    expect(view.categoryShelves.map((shelf) => shelf.articles.map(({ article: item }) => item.id))).toEqual([
+      ["article-0", "article-2", "article-4"],
+      ["article-1", "article-3", "article-5"],
     ]);
     expect(view.topics).toEqual(["World Desk", "Culture Desk"]);
   });
 
-  it("fills unavailable slots with prototype stories so every homepage module stays present", () => {
+  it("uses categorized prototype stories only to keep sparse homepage modules present", () => {
     const partial = buildHomepageView([article(0), article(1), article(2), article(3)]);
     expect(partial.lead?.article.id).toBe("article-0");
     expect(partial.related).toHaveLength(2);
-    expect(partial.featureColumns).toHaveLength(2);
-    expect(partial.featureColumns.every((column) => column.length === 3)).toBe(true);
-    expect(partial.latest).toHaveLength(6);
-    expect(partial.featureColumns.flat().some((item) => item.isPrototype)).toBe(true);
+    expect(partial.categoryShelves).toHaveLength(2);
+    expect(partial.categoryShelves.every((shelf) => shelf.articles.length === 3)).toBe(true);
+    expect(partial.latest).toHaveLength(4);
+    expect(partial.categoryShelves.some((shelf) => shelf.articles.some((item) => item.isPrototype))).toBe(true);
 
     const empty = buildHomepageView([]);
     expect(empty.lead?.article.id).toBe("prototype-community-tech");
     expect(empty.related).toHaveLength(2);
-    expect(empty.featureColumns).toHaveLength(2);
-    expect(empty.featureColumns.every((column) => column.length === 3)).toBe(true);
-    expect(empty.latest).toHaveLength(6);
+    expect(empty.categoryShelves).toHaveLength(2);
+    expect(empty.categoryShelves.every((shelf) => shelf.articles.length === 3)).toBe(true);
+    expect(empty.categoryShelves.map(({ category }) => category.value)).toEqual([
+      "technology",
+      "social-enterprise",
+    ]);
+    expect(empty.latest).toHaveLength(15);
     expect(empty.topics).toEqual(["生成式 AI", "數碼共融", "社區創新", "影響力營運"]);
   });
 
@@ -140,13 +132,23 @@ describe("NewsHomepage rendering", () => {
   afterEach(cleanup);
 
   it("renders PressReady branding and the complete prototype homepage when there are no live articles", () => {
-    render(<NewsHomepage view={buildHomepageView([])} />);
+    const { container } = render(<NewsHomepage view={buildHomepageView([])} />);
 
     expect(screen.getByText("PressReady", { selector: ".news-v1-brand-name" })).toBeTruthy();
-    expect(screen.getByText("當公共 AI 走進社區，誰來定義真正需要解決的問題？")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "精選報道" })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "當公共 AI 走進社區，誰來定義真正需要解決的問題？",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "科技" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "社企專欄" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "最新短訊" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "編輯工作區" }).getAttribute("href")).toBe("/review");
+    expect(screen.getAllByRole("link", { name: "科技" }).some((link) => link.getAttribute("href") === "/technology")).toBe(true);
+    expect(screen.getAllByRole("link", { name: "社企專欄" }).some((link) => link.getAttribute("href") === "/social-enterprise")).toBe(true);
+    expect(screen.getAllByRole("link", { name: "編輯工作區" }).every((link) => link.getAttribute("href") === "/review")).toBe(true);
+    expect(container.querySelector("details.news-v1-mobile-menu")).toBeTruthy();
+    expect(screen.getByText("目錄", { selector: "summary > span:first-child" })).toBeTruthy();
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("link", { name: "當公共 AI 走進社區，誰來定義真正需要解決的問題？" })).toBeNull();
   });

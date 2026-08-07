@@ -3,13 +3,14 @@
 import type { ReactNode } from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PipelineWorkspace } from "@/components/pipeline/pipeline-workspace";
 import {
   getPipelineArticleContent,
   listPipelineArticles,
   rewritePipelineArticle,
+  uploadPipelineArticleImage,
   updatePipelineArticlePost,
 } from "@/lib/client/feeds-api";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
@@ -26,7 +27,9 @@ vi.mock("@/lib/client/feeds-api", () => ({
   importScrapedArticles: vi.fn(),
   listPipelineArticles: vi.fn(),
   listPopularPipelineStories: vi.fn(),
+  removePipelineArticleImage: vi.fn(),
   rewritePipelineArticle: vi.fn(),
+  uploadPipelineArticleImage: vi.fn(),
   updatePipelineArticlePost: vi.fn(),
 }));
 
@@ -43,6 +46,7 @@ const article: PipelineArticleView = {
   rewrittenText: "Editorial headline\n\nEditable article copy.",
   sourceText: "Saved source reporting.",
   imageUrl: "https://images.example.com/original.webp",
+  category: "technology",
   mergedIntoArticleId: null,
   publishedAt: null,
   createdAt: 1_780_000_000,
@@ -58,6 +62,17 @@ function mockArticleLoad(value: PipelineArticleView) {
 }
 
 describe("PipelineWorkspace post composer", () => {
+  beforeEach(() => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:editor-photo-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -70,6 +85,7 @@ describe("PipelineWorkspace post composer", () => {
         ...article,
         rewrittenText: input.rewrittenText ?? article.rewrittenText,
         imageUrl: input.imageUrl === undefined ? article.imageUrl : input.imageUrl || null,
+        category: input.category === undefined ? article.category : input.category,
         status: input.status ?? article.status,
         publishedAt: input.status === "approved" ? 1_780_000_200 : null,
       },
@@ -77,26 +93,33 @@ describe("PipelineWorkspace post composer", () => {
     const user = userEvent.setup();
     render(<PipelineWorkspace initialModel="grok-4.5" />);
 
-    const copy = await screen.findByLabelText("Post copy");
+    const headline = await screen.findByDisplayValue("Editorial headline", {}, { timeout: 15_000 });
+    const copy = screen.getByDisplayValue("Editable article copy.");
+    await user.click(screen.getByText("Or use a public image URL"));
     const image = screen.getByLabelText("Featured image URL");
+    const category = screen.getByLabelText("Public category");
+    await user.clear(headline);
+    await user.type(headline, "Updated public headline");
     await user.clear(copy);
-    await user.type(copy, "Updated public headline\n\nUpdated public copy.");
+    await user.type(copy, "Updated public copy.");
     await user.clear(image);
     await user.type(image, "https://images.example.com/updated.webp");
+    await user.selectOptions(category, "social-enterprise");
     await user.click(screen.getByRole("button", { name: "Publish to homepage" }));
 
     await waitFor(() =>
       expect(updatePipelineArticlePost).toHaveBeenCalledWith("article-1", {
         rewrittenText: "Updated public headline\n\nUpdated public copy.",
         imageUrl: "https://images.example.com/updated.webp",
+        category: "social-enterprise",
         status: "approved",
       }),
     );
     expect(await screen.findByText(/was published to the homepage/u)).toBeTruthy();
-  });
+  }, 20_000);
 
   it("supports rewriting and publishing in one action", async () => {
-    const newArticle = { ...article, status: "new" as const, rewrittenText: null, imageUrl: null };
+    const newArticle = { ...article, status: "new" as const, rewrittenText: null, imageUrl: null, category: null };
     mockArticleLoad(newArticle);
     vi.mocked(updatePipelineArticlePost).mockResolvedValue({
       article: { ...newArticle, imageUrl: "https://images.example.com/new.webp" },
@@ -115,7 +138,15 @@ describe("PipelineWorkspace post composer", () => {
     const user = userEvent.setup();
     render(<PipelineWorkspace initialModel="grok-4.5" />);
 
-    const image = await screen.findByLabelText("Featured image URL");
+    await waitFor(
+      () =>
+        expect(
+          screen.getByRole("button", { name: "Rewrite & publish" }).hasAttribute("disabled"),
+        ).toBe(false),
+      { timeout: 15_000 },
+    );
+    await user.click(screen.getByText("Or use a public image URL"));
+    const image = screen.getByLabelText("Featured image URL");
     await user.type(image, "https://images.example.com/new.webp");
     await user.click(screen.getByRole("button", { name: "Rewrite & publish" }));
 
@@ -129,5 +160,31 @@ describe("PipelineWorkspace post composer", () => {
       imageUrl: "https://images.example.com/new.webp",
     });
     expect(await screen.findByText(/is now live on the homepage/u)).toBeTruthy();
-  });
+  }, 20_000);
+
+  it("uploads an editor-owned photo and keeps the managed image with the post", async () => {
+    mockArticleLoad(article);
+    const managedImageUrl = `/api/news-images/${"a".repeat(32)}?v=2`;
+    vi.mocked(uploadPipelineArticleImage).mockResolvedValue({
+      article: { ...article, imageUrl: managedImageUrl },
+      imageUrl: managedImageUrl,
+    });
+    const user = userEvent.setup();
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    await screen.findByDisplayValue("Editorial headline", {}, { timeout: 15_000 });
+    const imageInput = screen.getByLabelText("Upload your own photo");
+    const file = new File(["valid image bytes"], "community-team.webp", {
+      type: "image/webp",
+    });
+    await user.upload(imageInput, file);
+
+    await waitFor(() =>
+      expect(uploadPipelineArticleImage).toHaveBeenCalledWith("article-1", file),
+    );
+    expect(await screen.findByText(/is uploaded and saved/u)).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Featured image preview" }).getAttribute("src")).toBe(
+      managedImageUrl,
+    );
+  }, 20_000);
 });

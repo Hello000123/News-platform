@@ -1,0 +1,253 @@
+- banner:
+  - navigation
+  - link "香港 unwire.hk 玩生活．樂科技":
+    - /url: https://unwire.hk/
+    - img "香港 unwire.hk 玩生活．樂科技"
+  - list:
+    - link:
+      - /url: https://unwire.pro
+    - button
+    - button
+  - list:
+    - link "WWDC 2026":
+      - /url: https://unwire.hk/tag/wwdc-2026/
+    - link "GenAI 與雲端科技專區":
+      - /url: https://unwire.hk/tag/genai-cloud/
+    - link "ERP 與商業 AI 專區":
+      - /url: https://unwire.hk/tag/erp-business-ai/
+    - link "GEMINI":
+      - /url: https://unwire.hk/tag/gemini/
+    - link "Claude":
+      - /url: https://unwire.hk/tag/claude/
+    - link "iPhone Air":
+      - /url: https://unwire.hk/tag/iphone-air/
+    - link "iPhone 17":
+      - /url: https://unwire.hk/tag/iphone-17/
+    - link "iPhone 17 Pro":
+      - /url: https://unwire.hk/tag/iphone-17-pro/
+    - link "AirPods Pro 3":
+      - /url: https://unwire.hk/tag/airpods-pro-3/
+    - link "Apple Watch Ultra 3":
+      - /url: https://unwire.hk/tag/apple-watch-ultra-3/
+    - link "Apple Watch Series 11":
+      - /url: https://unwire.hk/tag/apple-watch-series-11/
+    - link "Galaxy Z Fold 7":
+      - /url: https://unwire.hk/tag/galaxy-z-fold-7/
+    - link "Galaxy Z Flip7":
+      - /url: https://unwire.hk/tag/galaxy-z-flip7/
+    - link "Switch 2":
+      - /url: https://unwire.hk/tag/switch-2/
+    - link "iPhone 16e":
+      - /url: https://unwire.hk/tag/iphone-16e/
+    - link "Galaxy S25 系列":
+      - /url: https://unwire.hk/tag/galaxy-s25-%e7%b3%bb%e5%88%97/
+    - link "NVIDIA RTX 50":
+      - /url: https://unwire.hk/tag/nvidia-rtx-50/
+    - link "CES2025":
+      - /url: https://unwire.hk/tag/ces2025/
+    - link "Nothing Ear (Open)":
+      - /url: https://unwire.hk/tag/nothing-ear-open/
+    - link "Mate XT":
+      - /url: https://unwire.hk/tag/mate-xt/
+    - link "DJI Neo":
+      - /url: https://unwire.hk/tag/dji-neo/
+    - link "iPhone 16":
+      - /url: https://unwire.hk/tag/iphone-16/
+    - link "AirPods 4":
+      - /url: https://unwire.hk/tag/airpods-4/
+    - link "Apple Watch Series 10":
+      - /url: https://unwire.hk/tag/apple-watch-series-10/
+    - link "PS Portal":
+      - /url: https://unwire.hk/tag/ps-portal/
+    - link "Watch Ultra":
+      - /url: https://unwire.hk/tag/watch-ultra/
+    - link "Galaxy Buds3 Pro":
+      - /url: https://unwire.hk/tag/galaxy-buds3-pro/
+    - link "Galaxy Z Flip6":
+      - /url: https://unwire.hk/tag/galaxy-z-flip6/
+    - link "Activo P1":
+      - /url: https://unwire.hk/tag/activo-p1/
+- generic: 本網站正使用 Cookie
+- text: 我們使用 Cookie 改善網站體驗。 繼續使用我們的網站即表示您同意我們的
+- link "Cookie 政策":
+  - /url: "#"
+- text: 。
+- banner:
+  - heading "ERP 與商業 AI 專區" [level=1]:
+    - generic: ERP 與商業 AI 專區
+- main:
+  - list:
+    - link:
+      - /url: https://unwire.hk/2026/05/20/web3-erp-ai-platform-reliability/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "針對 Web3 企業 3 大最佳增加平台可靠度 AI 導入策略":
+      - /url: https://unwire.hk/2026/05/20/web3-erp-ai-platform-reliability/erp-business-ai/
+    - generic: 3 個月前
+    - link:
+      - /url: https://unwire.hk/2026/05/20/ai-agent-erp-system-hong-kong-future/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "2026 年 ERP 系統新革命：AI Agent 如何顛覆香港企業數碼化轉型？":
+      - /url: https://unwire.hk/2026/05/20/ai-agent-erp-system-hong-kong-future/erp-business-ai/
+    - generic: 3 個月前
+    - link:
+      - /url: https://unwire.hk/2026/05/13/best-5-geo-tools-seo-hong-kong/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "駕馭 AI 搜尋浪潮：2026 年香港市場 5 大最佳 GEO 工具深度解析":
+      - /url: https://unwire.hk/2026/05/13/best-5-geo-tools-seo-hong-kong/erp-business-ai/
+    - generic: 3 個月前
+    - link:
+      - /url: https://unwire.hk/2026/05/13/netsuite-evaluation-2026-outages-roi-analysis/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "NetSuite 評價 2026：雲端 ERP 的穩定性考驗與 Oracle 戰略重心轉移之深度分析":
+      - /url: https://unwire.hk/2026/05/13/netsuite-evaluation-2026-outages-roi-analysis/erp-business-ai/
+    - generic: 3 個月前
+    - link:
+      - /url: https://unwire.hk/2026/04/21/agentic-ai-microsoft-licensing-shift-software-industry/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "領航 Agentic AI 時代：Microsoft 計費模式轉向深度解析及其對軟件業策略意義":
+      - /url: https://unwire.hk/2026/04/21/agentic-ai-microsoft-licensing-shift-software-industry/erp-business-ai/
+    - generic: 4 個月前
+    - link:
+      - /url: https://unwire.hk/2026/04/14/2026-best-ai-visibility-tools-seo-strategy-hong-kong-singapore/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "2026 最新 AI SEO 攻略：香港與新加坡實測熱門 AI 可見度工具":
+      - /url: https://unwire.hk/2026/04/14/2026-best-ai-visibility-tools-seo-strategy-hong-kong-singapore/erp-business-ai/
+    - generic: 4 個月前
+    - link:
+      - /url: https://unwire.hk/2026/03/10/ai-digital-marketing-strategy-apocalypse-guide/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "AI 數碼營銷：在「AI 末日」的餘燼中重構品牌生還指南":
+      - /url: https://unwire.hk/2026/03/10/ai-digital-marketing-strategy-apocalypse-guide/erp-business-ai/
+    - generic: 5 個月前
+    - link:
+      - /url: https://unwire.hk/2026/03/10/hong-kong-leather-industry-best-erp-software-2026/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港 8 大最好用的皮具行業 ERP 系統推薦 2026 企業轉型指南":
+      - /url: https://unwire.hk/2026/03/10/hong-kong-leather-industry-best-erp-software-2026/erp-business-ai/
+    - generic: 5 個月前
+    - link:
+      - /url: https://unwire.hk/2026/03/10/out-of-sea-ecommerce-seo-consultant-best-ai-visibility-tool-profound-alternative/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "出海電商 SEO 顧問最好的 Profound 替代方案 AI 可見度工具用戶指南":
+      - /url: https://unwire.hk/2026/03/10/out-of-sea-ecommerce-seo-consultant-best-ai-visibility-tool-profound-alternative/erp-business-ai/
+    - generic: 5 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/13/ai-agent-strategy-ms-office-plug-in-pitfalls/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "AI Agent 策略大誤區：為何企業不應在 MS Office 開發插件？":
+      - /url: https://unwire.hk/2026/02/13/ai-agent-strategy-ms-office-plug-in-pitfalls/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/13/hong-kong-medical-industry-best-5-hrms-recommendation-2026/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港醫療行業 5 大最受歡迎 HRMS 推薦":
+      - /url: https://unwire.hk/2026/02/13/hong-kong-medical-industry-best-5-hrms-recommendation-2026/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/10/fresh-grad-job-hunt-2025-ai-finance-crisis-career-guide/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "AI 殺入金融業變「絞肉機」？投行、會計 MT 夢碎 不懂 Coding 恐變職場棄兒":
+      - /url: https://unwire.hk/2026/02/10/fresh-grad-job-hunt-2025-ai-finance-crisis-career-guide/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/03/deloitte-erp-digital-transformation-consultant-fail-ai-era/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "顧問已死？Deloitte 爆 AI 報告醜聞 企業 ERP / HRMS 轉型應「去中間化」":
+      - /url: https://unwire.hk/2026/02/03/deloitte-erp-digital-transformation-consultant-fail-ai-era/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/03/hong-kong-automotive-parts-erp-recommendation-2026/review-2/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港汽車零件商最佳 ERP 推薦 2026 專業評測與 AI 趨勢分析":
+      - /url: https://unwire.hk/2026/02/03/hong-kong-automotive-parts-erp-recommendation-2026/review-2/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/03/hong-kong-service-industry-best-roster-attendance-system-guide-2026/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港 4 大熱門服務業排班及考勤系統 服務業與技術轉型的演進：2014 - 2026":
+      - /url: https://unwire.hk/2026/02/03/hong-kong-service-industry-best-roster-attendance-system-guide-2026/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/02/hk-hr-system-market-telco-cross-sell-risks/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港 HR 系統市場仍熱 電訊公司跨售模式隱憂多":
+      - /url: https://unwire.hk/2026/02/02/hk-hr-system-market-telco-cross-sell-risks/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/02/01/hong-kong-financial-industry-best-6-hrms-recommendation-2026/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港金融業 6 大最佳 HRMS 推薦 2026 金融人力資源系統選購指南":
+      - /url: https://unwire.hk/2026/02/01/hong-kong-financial-industry-best-6-hrms-recommendation-2026/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/01/27/ai-layoffs-2026-hong-kong-it-managers-windows-linux/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "2026 AI 裁員潮來襲 香港 IT 經理人別再困 Windows 舒適圈":
+      - /url: https://unwire.hk/2026/01/27/ai-layoffs-2026-hong-kong-it-managers-windows-linux/erp-business-ai/
+    - generic: 6 個月前
+    - link:
+      - /url: https://unwire.hk/2026/01/13/hong-kong-erp-selection-guide-2026-global-market/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港 5 大最受出海港企歡迎的 ERP 系統":
+      - /url: https://unwire.hk/2026/01/13/hong-kong-erp-selection-guide-2026-global-market/erp-business-ai/
+    - generic: 7 個月前
+    - link:
+      - /url: https://unwire.hk/2026/01/08/hong-kong-top-3-best-ngo-system-comparison/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港 NGO 系統推薦：2026 年挑戰與機遇":
+      - /url: https://unwire.hk/2026/01/08/hong-kong-top-3-best-ngo-system-comparison/erp-business-ai/
+    - generic: 7 個月前
+    - link:
+      - /url: https://unwire.hk/2025/11/06/shopify-erp-hongkong-retail-transformation/erp-business-ai/
+    - list:
+      - link "ERP 與商業 AI 專區":
+        - /url: https://unwire.hk/category/erp-business-ai/
+    - link "香港零售商轉型關鍵 Shopify 結合 ERP 是突圍之道":
+      - /url: https://unwire.hk/2025/11/06/shopify-erp-hongkong-retail-transformation/erp-business-ai/
+    - generic: 9 個月前
+  - list:
+    - generic: "1"
+    - link "2":
+      - /url: https://unwire.hk/tag/erp-business-ai/page/2/
+    - link:
+      - /url: https://unwire.hk/tag/erp-business-ai/page/2/

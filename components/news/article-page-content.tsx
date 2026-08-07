@@ -10,6 +10,7 @@ import {
 } from "@/components/news/article-content";
 import { EditorialPublicFooter, EditorialPublicHeader } from "@/components/news/editorial-public-chrome";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
+import { newsCategoryDefinition } from "@/lib/shared/news-categories";
 
 function formatArticleDate(timestamp: number | null) {
   if (!timestamp) return "待更新";
@@ -45,7 +46,16 @@ export function NewsArticlePageContent({
   const deck = extractArticleSummary(article);
   const keyPoints = extractArticleKeyPoints(article);
   const timestamp = articleTimestamp(article);
-  const topics = [...new Set([article.feedName, ...related.map(({ feedName }) => feedName)])];
+  const category = article.category
+    ? newsCategoryDefinition(article.category)
+    : null;
+  const topics = [
+    ...new Set([
+      ...(category ? [category.label] : []),
+      article.feedName,
+      ...related.map(({ feedName }) => feedName),
+    ]),
+  ];
 
   return (
     <div className="news-v1-article-page">
@@ -60,8 +70,16 @@ export function NewsArticlePageContent({
           <header className="news-v1-article-heading news-v1-page-shell">
             <nav className="news-v1-article-breadcrumb" aria-label="文章導覽">
               <Link href="/">← 所有已核准報道</Link>
+              {category ? (
+                <>
+                  <span aria-hidden="true">/</span>
+                  <Link href={category.href}>{category.label}</Link>
+                </>
+              ) : null}
             </nav>
-            <p className="news-v1-article-kicker">{article.feedName}・已核准報道</p>
+            <p className="news-v1-article-kicker">
+              {category?.label ?? article.feedName}・已核准報道
+            </p>
             <h1 id="article-title">{title}</h1>
             {deck ? <p className="news-v1-article-deck">{deck}</p> : null}
 
@@ -154,7 +172,9 @@ export function NewsArticlePageContent({
         </article>
 
         <nav className="news-v1-page-shell news-v1-article-return" aria-label="文章導覽">
-          <Link href="/">返回所有已核准報道 <span aria-hidden="true">→</span></Link>
+          <Link href={category?.href ?? "/"}>
+            返回{category?.label ?? "所有已核准報道"} <span aria-hidden="true">→</span>
+          </Link>
         </nav>
       </main>
       <EditorialPublicFooter />

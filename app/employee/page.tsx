@@ -22,9 +22,14 @@ export default async function EmployeeApprovalPage() {
               <h1>Admin Panel</h1>
               <p>Review applications and manage client and employee account records.</p>
             </div>
-            <Link className="button button-secondary" href="/review">
-              Review workspace
-            </Link>
+            <div className="employee-page-heading-actions">
+              <Link className="button button-primary" href="/pipeline">
+                Manage news posts
+              </Link>
+              <Link className="button button-secondary" href="/review">
+                Review workspace
+              </Link>
+            </div>
           </div>
           <ApprovalDashboard />
         </div>

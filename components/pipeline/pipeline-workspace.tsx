@@ -9,15 +9,20 @@ import {
   importScrapedArticles,
   listPipelineArticles,
   listPopularPipelineStories,
+  removePipelineArticleImage,
   rewritePipelineArticle,
+  uploadPipelineArticleImage,
   updatePipelineArticlePost,
 } from "@/lib/client/feeds-api";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MEGABYTES } from "@/lib/shared/file-upload";
 import type {
+  NewsCategory,
   PipelineArticleStatus,
   PipelineArticleView,
   ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
 import type { SelectableModelId } from "@/lib/shared/models";
+import { NEWS_CATEGORIES } from "@/lib/shared/news-categories";
 import { POPULAR_PIPELINE_REWRITE_INSTRUCTION } from "@/lib/shared/pipeline-rewrite-instructions";
 
 type Filter = PipelineArticleStatus | "all";
@@ -43,9 +48,17 @@ function optionalText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isManagedImageUrl(value: string) {
+  return /^\/api\/news-images\/[0-9a-f]{32}(?:\?v=\d+)?$/u.test(value.trim());
+}
+
 function previewableImageUrl(value: string) {
+  const trimmed = value.trim();
+  if (isManagedImageUrl(trimmed)) {
+    return trimmed;
+  }
   try {
-    const url = new URL(value.trim());
+    const url = new URL(trimmed);
     return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password
       ? url.href
       : null;
@@ -54,8 +67,24 @@ function previewableImageUrl(value: string) {
   }
 }
 
+function splitPostCopy(value: string | null) {
+  const paragraphs = (value ?? "")
+    .split(/\n\s*\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  return {
+    headline: paragraphs[0] ?? "",
+    body: paragraphs.slice(1).join("\n\n"),
+  };
+}
+
+function composePostCopy(headline: string, body: string) {
+  if (!headline && !body) return "";
+  return body ? `${headline}\n\n${body}` : headline;
+}
+
 function rewrittenHeadline(value: string | null) {
-  return value?.split(/\n\s*\n/u)[0]?.trim() || "Untitled post";
+  return splitPostCopy(value).headline || "Untitled post";
 }
 
 function scrapedArticleInput(value: unknown, index: number): ScrapedArticleInput {
@@ -93,6 +122,8 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [output, setOutput] = useState<string | null>(null);
+  const [postHeadline, setPostHeadline] = useState("");
+  const [postBody, setPostBody] = useState("");
   const [validation, setValidation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [contentBusy, setContentBusy] = useState(false);
@@ -107,18 +138,34 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState("");
   const [imagePreviewFailed, setImagePreviewFailed] = useState(false);
+  const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [localImagePreview, setLocalImagePreview] = useState<string | null>(null);
+  const [category, setCategory] = useState<NewsCategory | "">("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const outputRef = useRef<HTMLTextAreaElement | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedArticle = articles.find((article) => article.id === selectedId) ?? null;
-  const imagePreviewUrl = previewableImageUrl(imageUrl);
+  const hasManagedImage = isManagedImageUrl(imageUrl);
+  const imagePreviewUrl = localImagePreview ?? previewableImageUrl(imageUrl);
+  const composedPostCopy = composePostCopy(postHeadline, postBody);
+  const postCopyReady = Boolean(postHeadline.trim() && postBody.trim());
   const postHasChanges = Boolean(
     selectedArticle &&
-      ((output?.trim() ?? "") !== (selectedArticle.rewrittenText?.trim() ?? "") ||
-        imageUrl.trim() !== (selectedArticle.imageUrl ?? "").trim()),
+      (composedPostCopy.trim() !== (selectedArticle.rewrittenText?.trim() ?? "") ||
+        imageUrl.trim() !== (selectedArticle.imageUrl ?? "").trim() ||
+        category !== (selectedArticle.category ?? "")),
   );
-  const actionBusy = rewriteBusy || popularRewriteBusy || postBusy;
+  const actionBusy =
+    contentBusy || rewriteBusy || popularRewriteBusy || postBusy || imageUploadBusy;
+
+  useEffect(() => {
+    return () => {
+      if (localImagePreview) URL.revokeObjectURL(localImagePreview);
+    };
+  }, [localImagePreview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,8 +204,13 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       if (cancelled) return;
       setContent(null);
       setOutput(null);
+      setPostHeadline("");
+      setPostBody("");
       setImageUrl("");
       setImagePreviewFailed(false);
+      setImageUploadError(null);
+      setLocalImagePreview(null);
+      setCategory("");
       setValidation(null);
       setErrorMessage("");
       setContentBusy(true);
@@ -172,7 +224,11 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
             ),
           );
           setImageUrl(result.article.imageUrl ?? "");
-          if (result.article.rewrittenText) setOutput(result.article.rewrittenText);
+          setCategory(result.article.category ?? "");
+          const loadedPost = splitPostCopy(result.article.rewrittenText);
+          setPostHeadline(loadedPost.headline);
+          setPostBody(loadedPost.body);
+          setOutput(result.article.rewrittenText ?? "");
         })
         .catch((error) => {
           if (!cancelled) {
@@ -237,17 +293,28 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
     setErrorMessage("");
     setNotice(null);
     try {
-      if (
-        publish &&
-        imageUrl.trim() !== (selectedArticle.imageUrl ?? "").trim()
-      ) {
-        await updatePipelineArticlePost(selectedArticle.id, {
-          imageUrl: imageUrl.trim() || null,
-        });
+      if (publish) {
+        const pendingPostMetadata: {
+          imageUrl?: string | null;
+          category?: NewsCategory | null;
+        } = {};
+        if (imageUrl.trim() !== (selectedArticle.imageUrl ?? "").trim()) {
+          pendingPostMetadata.imageUrl = imageUrl.trim() || null;
+        }
+        if (category !== (selectedArticle.category ?? "")) {
+          pendingPostMetadata.category = category || null;
+        }
+        if (Object.keys(pendingPostMetadata).length > 0) {
+          await updatePipelineArticlePost(selectedArticle.id, pendingPostMetadata);
+        }
       }
       const result = await rewritePipelineArticle(selectedArticle.id, { model, publish });
+      const rewrittenPost = splitPostCopy(result.finalText);
+      setPostHeadline(rewrittenPost.headline);
+      setPostBody(rewrittenPost.body);
       setOutput(result.finalText);
       setImageUrl(result.article.imageUrl ?? "");
+      setCategory(result.article.category ?? "");
       setValidation(
         result.validation.status === "passed"
           ? "Validation passed on the first attempt."
@@ -346,10 +413,16 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   }
 
   async function handlePostSave(publish: boolean) {
-    if (!selectedArticle || postBusy || rewriteBusy || popularRewriteBusy) return;
-    const rewrittenText = output?.trim();
-    if (publish && !rewrittenText) {
-      setErrorMessage("Rewrite or add the final article copy before publishing it.");
+    if (
+      !selectedArticle ||
+      contentBusy ||
+      postBusy ||
+      rewriteBusy ||
+      popularRewriteBusy
+    ) return;
+    const rewrittenText = composePostCopy(postHeadline, postBody).trim();
+    if (publish && !postCopyReady) {
+      setErrorMessage("Add both a public headline and article body before publishing it.");
       return;
     }
     setPostBusy(true);
@@ -359,6 +432,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       const result = await updatePipelineArticlePost(selectedArticle.id, {
         ...(rewrittenText ? { rewrittenText } : {}),
         imageUrl: imageUrl.trim() || null,
+        category: category || null,
         ...(publish ? { status: "approved" as const } : {}),
       });
       setArticles((current) =>
@@ -367,7 +441,11 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
         ),
       );
       setOutput(result.article.rewrittenText);
+      const savedPost = splitPostCopy(result.article.rewrittenText);
+      setPostHeadline(savedPost.headline);
+      setPostBody(savedPost.body);
       setImageUrl(result.article.imageUrl ?? "");
+      setCategory(result.article.category ?? "");
       setNotice(
         publish
           ? result.article.status === selectedArticle.status
@@ -428,10 +506,86 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   }
 
   function handleCopy() {
-    if (!output) return;
-    void navigator.clipboard.writeText(output).then(() => {
+    const copy = composePostCopy(postHeadline, postBody).trim();
+    if (!copy) return;
+    void navigator.clipboard.writeText(copy).then(() => {
       setNotice("The rewritten article was copied to your clipboard.");
     });
+  }
+
+  async function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !selectedArticle || actionBusy) return;
+    setImageUploadError(null);
+    setErrorMessage("");
+    setNotice(null);
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setImageUploadError("Choose a PNG, JPEG, or WebP photo.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setImageUploadError(`Choose a photo smaller than ${MAX_UPLOAD_MEGABYTES} MB.`);
+      event.target.value = "";
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    setLocalImagePreview(preview);
+    setImagePreviewFailed(false);
+    setImageUploadBusy(true);
+    try {
+      const result = await uploadPipelineArticleImage(selectedArticle.id, file);
+      setArticles((current) =>
+        current.map((article) =>
+          article.id === result.article.id ? result.article : article,
+        ),
+      );
+      setImageUrl(result.imageUrl);
+      setLocalImagePreview(null);
+      setNotice(`“${file.name}” is uploaded and saved as this post’s featured photo.`);
+    } catch (error) {
+      setLocalImagePreview(null);
+      setImageUploadError(
+        error instanceof FeedRequestError
+          ? error.message
+          : "The photo could not be uploaded.",
+      );
+    } finally {
+      event.target.value = "";
+      setImageUploadBusy(false);
+    }
+  }
+
+  async function handleImageRemove() {
+    if (!selectedArticle || actionBusy) return;
+    setImageUploadError(null);
+    setImagePreviewFailed(false);
+    setLocalImagePreview(null);
+    if (!isManagedImageUrl(imageUrl)) {
+      setImageUrl("");
+      return;
+    }
+
+    setImageUploadBusy(true);
+    try {
+      const result = await removePipelineArticleImage(selectedArticle.id);
+      setArticles((current) =>
+        current.map((article) =>
+          article.id === result.article.id ? result.article : article,
+        ),
+      );
+      setImageUrl("");
+      setNotice("The uploaded featured photo was removed from this post.");
+    } catch (error) {
+      setImageUploadError(
+        error instanceof FeedRequestError
+          ? error.message
+          : "The photo could not be removed.",
+      );
+    } finally {
+      setImageUploadBusy(false);
+    }
   }
 
   return (
@@ -645,6 +799,47 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                     </span>
                   </div>
 
+                  <div className="pipeline-post-identity">
+                    <div>
+                      <label className="input-label" htmlFor="pipeline-public-headline">
+                        Public headline
+                      </label>
+                      <input
+                        id="pipeline-public-headline"
+                        className="text-input"
+                        type="text"
+                        maxLength={1_000}
+                        value={postHeadline}
+                        disabled={actionBusy || output === null}
+                        onChange={(event) => {
+                          setPostHeadline(event.target.value);
+                          setOutput(composePostCopy(event.target.value, postBody));
+                        }}
+                      />
+                      <p className="field-help">This headline appears on the homepage, category page, and article page.</p>
+                    </div>
+                    <div>
+                      <label className="input-label" htmlFor="pipeline-post-category">
+                        Public category
+                      </label>
+                      <select
+                        id="pipeline-post-category"
+                        className="text-input"
+                        value={category}
+                        disabled={actionBusy}
+                        onChange={(event) => setCategory(event.target.value as NewsCategory | "")}
+                      >
+                        <option value="">Homepage only</option>
+                        {NEWS_CATEGORIES.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="field-help">Choose where this post is archived after publication.</p>
+                    </div>
+                  </div>
+
                   <div className="pipeline-image-editor">
                     <div className="pipeline-image-preview">
                       {imagePreviewUrl && !imagePreviewFailed ? (
@@ -672,34 +867,64 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                       )}
                     </div>
                     <div className="pipeline-image-fields">
-                      <label className="input-label" htmlFor="pipeline-image-url">
-                        Featured image URL
-                      </label>
-                      <input
-                        id="pipeline-image-url"
-                        className="text-input"
-                        type="url"
-                        inputMode="url"
-                        placeholder="https://example.com/news-image.jpg"
-                        value={imageUrl}
-                        aria-invalid={Boolean(imageUrl.trim() && !imagePreviewUrl)}
-                        disabled={actionBusy}
-                        onChange={(event) => {
-                          setImageUrl(event.target.value);
-                          setImagePreviewFailed(false);
-                        }}
-                      />
-                      <p className="field-help">
-                        Paste a public HTTPS image URL. It will appear on the homepage and article page.
-                      </p>
+                      <div className="pipeline-photo-upload">
+                        <input
+                          ref={imageInputRef}
+                          className="sr-only"
+                          id="pipeline-image-upload"
+                          type="file"
+                          accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                          disabled={actionBusy}
+                          onChange={handleImageUpload}
+                        />
+                        <label className="input-label" htmlFor="pipeline-image-upload">
+                          Upload your own photo
+                        </label>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={actionBusy}
+                        >
+                          {imageUploadBusy ? "Uploading photo…" : imageUrl ? "Replace photo" : "Choose photo"}
+                        </button>
+                        <p className="field-help">PNG, JPEG, or WebP; up to {MAX_UPLOAD_MEGABYTES} MB. The photo is stored with the post.</p>
+                        {imageUploadError ? <p className="pipeline-image-error" role="alert">{imageUploadError}</p> : null}
+                      </div>
+                      <details className="pipeline-image-url-disclosure">
+                        <summary>Or use a public image URL</summary>
+                        <div>
+                          <label className="input-label" htmlFor="pipeline-image-url">
+                            Featured image URL
+                          </label>
+                          <input
+                            id="pipeline-image-url"
+                            className="text-input"
+                            type="url"
+                            inputMode="url"
+                            placeholder="https://example.com/news-image.jpg"
+                            value={hasManagedImage ? "" : imageUrl}
+                            aria-invalid={Boolean(imageUrl.trim() && !imagePreviewUrl)}
+                            disabled={actionBusy || hasManagedImage}
+                            onChange={(event) => {
+                              setImageUrl(event.target.value);
+                              setLocalImagePreview(null);
+                              setImagePreviewFailed(false);
+                              setImageUploadError(null);
+                            }}
+                          />
+                          {hasManagedImage ? (
+                            <p className="field-help">
+                              Remove the uploaded photo before switching to a public image URL.
+                            </p>
+                          ) : null}
+                        </div>
+                      </details>
                       {imageUrl ? (
                         <button
                           className="pipeline-text-action"
                           type="button"
-                          onClick={() => {
-                            setImageUrl("");
-                            setImagePreviewFailed(false);
-                          }}
+                          onClick={handleImageRemove}
                           disabled={actionBusy}
                         >
                           Remove featured image
@@ -749,22 +974,25 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                       <div className="pipeline-field-heading">
                         <div>
                           <label className="input-label" htmlFor="pipeline-rewritten-output">
-                            Post copy
+                            Article body
                           </label>
                           <p className="field-help">
-                            The first paragraph becomes the public headline. Verify every fact before publishing.
+                            Edit the finished report below. Verify every fact before publishing.
                           </p>
                         </div>
-                        <span>{output.length.toLocaleString("en-US")} / 50,000</span>
+                        <span>{composedPostCopy.length.toLocaleString("en-US")} / 50,000</span>
                       </div>
                       <textarea
                         id="pipeline-rewritten-output"
                         ref={outputRef}
                         className="output-textarea pipeline-post-textarea"
-                        value={output}
-                        maxLength={50_000}
+                        value={postBody}
+                        maxLength={49_000}
                         disabled={actionBusy}
-                        onChange={(event) => setOutput(event.target.value)}
+                        onChange={(event) => {
+                          setPostBody(event.target.value);
+                          setOutput(composePostCopy(postHeadline, event.target.value));
+                        }}
                         spellCheck
                       />
                     </div>
@@ -791,7 +1019,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                       </span>
                     </div>
                     <div className="pipeline-actions">
-                      {output ? (
+                      {composedPostCopy.trim() ? (
                         <button
                           className="button button-quiet"
                           type="button"
@@ -813,7 +1041,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                         className="button button-primary"
                         type="button"
                         onClick={() => handlePostSave(true)}
-                        disabled={actionBusy || !output?.trim()}
+                        disabled={actionBusy || !postCopyReady}
                       >
                         {postBusy
                           ? "Publishing…"

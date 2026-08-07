@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { extractArticleSummary, selectRelatedArticles } from "@/components/news/article-content";
+import {
+  articleDisplayTitle,
+  extractArticleSummary,
+  selectRelatedArticles,
+} from "@/components/news/article-content";
 import { NewsArticlePageContent } from "@/components/news/article-page-content";
 import { getDatabase } from "@/lib/server/auth/database";
 import { getPublicArticleById, listPublicArticles } from "@/lib/server/feeds/repository";
@@ -18,7 +22,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   if (!article) return { title: "找不到報道 | PressReady" };
 
   return {
-    title: `${article.title} | PressReady`,
+    title: `${articleDisplayTitle(article)} | PressReady`,
     description: extractArticleSummary(article) ?? undefined,
   };
 }

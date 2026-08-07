@@ -7,6 +7,10 @@ import {
   rewriteValidationSchema,
   selectableModelSchema,
 } from "@/lib/shared/contracts";
+import { NEWS_CATEGORY_VALUES } from "@/lib/shared/news-categories";
+import type { NewsCategory } from "@/lib/shared/news-categories";
+
+export type { NewsCategory } from "@/lib/shared/news-categories";
 
 export const FEED_STATUSES = ["active", "paused"] as const;
 export type FeedStatus = (typeof FEED_STATUSES)[number];
@@ -126,6 +130,7 @@ export const feedViewSchema = z
 export type FeedView = z.infer<typeof feedViewSchema>;
 
 export const pipelineArticleStatusSchema = z.enum(PIPELINE_ARTICLE_STATUSES);
+export const pipelineArticleCategorySchema = z.enum(NEWS_CATEGORY_VALUES);
 
 export const pipelineArticleViewSchema = z
   .object({
@@ -141,6 +146,7 @@ export const pipelineArticleViewSchema = z
     rewrittenText: z.string().nullable(),
     sourceText: z.string().nullable().optional(),
     imageUrl: z.string().nullable().optional(),
+    category: pipelineArticleCategorySchema.nullable().optional(),
     mergedIntoArticleId: z.string().nullable().optional(),
     publishedAt: z.number().nullable().optional(),
     createdAt: z.number(),
@@ -247,6 +253,8 @@ export const pipelineStatusUpdateSchema = z
 
 export type PipelineStatusUpdateInput = z.infer<typeof pipelineStatusUpdateSchema>;
 
+const MANAGED_NEWS_IMAGE_PATH = /^\/api\/news-images\/[0-9a-f]{32}(?:\?v=\d+)?$/u;
+
 const pipelineArticleImageUrlSchema = z
   .union([
     z.null(),
@@ -258,11 +266,15 @@ const pipelineArticleImageUrlSchema = z
         FEED_URL_MAX_LENGTH,
         `Image URLs are limited to ${FEED_URL_MAX_LENGTH.toLocaleString("en-US")} characters.`,
       )
-      .url("Enter a valid image URL.")
       .refine((value) => {
-        const url = new URL(value);
-        return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
-      }, "Use a public HTTP or HTTPS image URL without embedded credentials."),
+        if (MANAGED_NEWS_IMAGE_PATH.test(value)) return true;
+        try {
+          const url = new URL(value);
+          return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
+        } catch {
+          return false;
+        }
+      }, "Use an uploaded news image or a public HTTP or HTTPS image URL without embedded credentials."),
   ])
   .transform((value) => value || null);
 
@@ -278,6 +290,7 @@ export const pipelineArticlePostUpdateSchema = z
       )
       .optional(),
     imageUrl: pipelineArticleImageUrlSchema.optional(),
+    category: pipelineArticleCategorySchema.nullable().optional(),
     status: z.enum(["approved", "discarded"]).optional(),
   })
   .strict()
@@ -285,8 +298,9 @@ export const pipelineArticlePostUpdateSchema = z
     (input) =>
       input.rewrittenText !== undefined ||
       input.imageUrl !== undefined ||
+      input.category !== undefined ||
       input.status !== undefined,
-    "Change the post copy, featured image, or publication status before saving.",
+    "Change the post copy, category, featured image, or publication status before saving.",
   );
 
 export type PipelineArticlePostUpdateInput = z.input<

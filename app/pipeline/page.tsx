@@ -22,8 +22,8 @@ export default async function PipelinePage() {
               <div className="eyebrow">Editorial publishing</div>
               <h1>News Pipeline</h1>
               <p>
-                Turn incoming reports into editable posts, choose a featured image,
-                and publish the finished story directly to the homepage.
+                Turn incoming reports into editable posts, upload your own featured
+                photo, choose a public category, and publish directly to the newsroom.
               </p>
             </div>
             <Link className="button button-secondary" href="/review">

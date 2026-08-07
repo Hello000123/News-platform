@@ -16,6 +16,7 @@ import {
   listPopularPipelineStories,
   listPipelineArticles,
   listPublicArticles,
+  listPublicArticlesByCategory,
   markPipelineArticlesMerged,
   markFeedFetchResult,
   setPipelineArticleRewritten,
@@ -72,6 +73,7 @@ describe("feeds repository", () => {
       "0007_scraped_article_content.sql",
       "0008_pipeline_article_merges.sql",
       "0010_pipeline_article_publication.sql",
+      "0011_pipeline_article_categories.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);
@@ -172,15 +174,21 @@ describe("feeds repository", () => {
     await updatePipelineArticlePost(database, articles[0].id, {
       rewrittenText: "Updated homepage headline.\n\nUpdated homepage copy.",
       imageUrl: "https://images.example.com/updated-story.webp",
+      category: "technology",
     });
     expect(await getPipelineArticleById(database, articles[0].id)).toMatchObject({
       status: "approved",
       rewrittenText: "Updated homepage headline.\n\nUpdated homepage copy.",
       imageUrl: "https://images.example.com/updated-story.webp",
+      category: "technology",
     });
 
     const approvedOnly = await listPipelineArticles(database, "approved");
     expect(approvedOnly).toHaveLength(1);
+    expect(await listPublicArticlesByCategory(database, "technology")).toEqual([
+      expect.objectContaining({ id: articles[0].id, category: "technology" }),
+    ]);
+    expect(await listPublicArticlesByCategory(database, "social-enterprise")).toEqual([]);
   });
 
   it("can rewrite and publish a pipeline article in one persistence step", async () => {
@@ -418,6 +426,7 @@ describe("feed pipeline ingestion", () => {
       "0007_scraped_article_content.sql",
       "0008_pipeline_article_merges.sql",
       "0010_pipeline_article_publication.sql",
+      "0011_pipeline_article_categories.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);

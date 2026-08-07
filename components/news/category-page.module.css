@@ -1,0 +1,373 @@
+.archive {
+  min-height: 100vh;
+}
+
+.masthead {
+  border-bottom: 1px solid var(--line);
+}
+
+.mastheadInner {
+  display: grid;
+  min-height: 146px;
+  align-content: center;
+  padding-block: 25px;
+}
+
+.marker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  color: var(--gold);
+}
+
+.marker span {
+  width: 44px;
+  height: 1px;
+  background: currentColor;
+}
+
+.marker p {
+  margin: 0;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+.headingGroup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 40px;
+}
+
+.headingGroup h1 {
+  margin-bottom: 7px;
+  font-family: var(--serif);
+  font-size: clamp(2.55rem, 4vw, 4.15rem);
+  font-weight: 400;
+  letter-spacing: -0.06em;
+  line-height: 0.95;
+}
+
+.headingGroup > div > p {
+  max-width: 680px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.reportCount {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 3px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.reportCount strong {
+  color: var(--gold);
+  font-family: var(--serif);
+  font-size: 2rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.reportCount span {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.reports {
+  max-width: 1080px;
+  padding-block: clamp(40px, 5vw, 68px) clamp(64px, 7vw, 96px);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 15px;
+  border-bottom: 3px solid var(--ink);
+}
+
+.sectionHeading p,
+.sectionHeading h2 {
+  margin-bottom: 0;
+}
+
+.sectionHeading p {
+  color: var(--gold);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.17em;
+}
+
+.sectionHeading h2 {
+  font-family: var(--serif);
+  font-size: clamp(1.65rem, 2.2vw, 2.15rem);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.reportList {
+  margin: 0;
+  list-style: none;
+}
+
+.reportList > li {
+  border-bottom: 1px solid var(--line);
+}
+
+.report {
+  display: grid;
+  grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
+  gap: clamp(28px, 4vw, 52px);
+  align-items: center;
+  padding-block: 30px;
+}
+
+.imageLink {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(26, 26, 26, 0.055);
+  text-decoration: none;
+}
+
+.imageLink img,
+.imagePlaceholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+
+.imageLink img {
+  height: auto;
+  object-fit: cover;
+  filter: grayscale(1) contrast(0.94);
+  transition: filter 220ms ease, transform 220ms ease;
+}
+
+.imageLink:hover img {
+  filter: grayscale(0.78) contrast(0.98);
+  transform: scale(1.012);
+}
+
+.imagePlaceholder {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, transparent 49.8%, rgba(180, 154, 90, 0.24) 50%, transparent 50.2%),
+    rgba(26, 26, 26, 0.035);
+  color: var(--muted);
+}
+
+.imagePlaceholder span {
+  color: var(--gold);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+.imagePlaceholder strong {
+  font-family: var(--serif);
+  font-size: 1.14rem;
+  font-weight: 400;
+}
+
+.reportCopy {
+  min-width: 0;
+}
+
+.categoryLabel {
+  margin-bottom: 10px;
+  color: var(--gold);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.reportCopy h2 {
+  margin-bottom: 12px;
+  font-family: var(--serif);
+  font-size: clamp(1.55rem, 2.35vw, 2.1rem);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 1.14;
+}
+
+.reportCopy h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.reportCopy h2 a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--gold);
+  text-underline-offset: 0.14em;
+}
+
+.summary {
+  display: -webkit-box;
+  margin-bottom: 17px;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.61rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.emptyState {
+  min-height: 360px;
+  padding: clamp(56px, 8vw, 92px) clamp(18px, 6vw, 64px);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+.emptyState > p:first-child {
+  margin-bottom: 13px;
+  color: var(--gold);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.emptyState h2 {
+  margin-bottom: 15px;
+  font-family: var(--serif);
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 400;
+  letter-spacing: -0.05em;
+  line-height: 1.05;
+}
+
+.emptyState > p:not(:first-child) {
+  max-width: 540px;
+  margin: 0 auto 25px;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 1.04rem;
+  line-height: 1.6;
+}
+
+.emptyState a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+}
+
+.emptyState a span {
+  color: var(--gold);
+  font-size: 1.25rem;
+}
+
+.archive a:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+}
+
+@media (max-width: 780px) {
+  .mastheadInner {
+    min-height: 170px;
+  }
+
+  .headingGroup {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .reportCount {
+    margin-bottom: 0;
+  }
+
+  .report {
+    grid-template-columns: 1fr;
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .reportCopy {
+    padding: 22px 20px 36px;
+  }
+
+  .summary {
+    -webkit-line-clamp: 3;
+  }
+}
+
+@media (max-width: 520px) {
+  .mastheadInner {
+    min-height: 184px;
+    padding-block: 26px;
+  }
+
+  .headingGroup h1 {
+    font-size: 2.8rem;
+  }
+
+  .headingGroup > div > p {
+    font-size: 0.96rem;
+  }
+
+  .reports {
+    width: 100%;
+    padding-top: 36px;
+  }
+
+  .sectionHeading {
+    margin-inline: 18px;
+  }
+
+  .sectionHeading h2 {
+    font-size: 1.5rem;
+  }
+
+  .reportCopy {
+    padding: 20px 18px 42px;
+  }
+
+  .reportCopy h2 {
+    font-size: 1.25rem;
+  }
+
+  .emptyState {
+    margin-inline: 18px;
+    padding-inline: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imageLink img {
+    transition: none;
+  }
+}

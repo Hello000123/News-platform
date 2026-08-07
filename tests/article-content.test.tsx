@@ -84,6 +84,16 @@ describe("public article content helpers", () => {
     expect(new Set(ranked.map(({ id }) => id)).size).toBe(ranked.length);
   });
 
+  it("ranks stories from the same public category before feed affinity", () => {
+    const current = article(0, { category: "technology" });
+    const ranked = selectRelatedArticles(current, [
+      article(1, { category: "social-enterprise" }),
+      article(4, { category: "technology" }),
+      article(2, { category: "technology" }),
+    ]);
+    expect(ranked.map(({ id }) => id)).toEqual(["article-4", "article-2", "article-1"]);
+  });
+
   it("keeps deterministic grayscale image URLs", () => {
     expect(placeholderImageUrl("article/one", 1200, 675)).toBe(
       "https://picsum.photos/seed/pressready-article%2Fone/1200/675.webp?grayscale",
@@ -98,6 +108,7 @@ describe("NewsArticlePageContent", () => {
     const current = article(1, {
       description: "A useful editorial deck.",
       imageUrl: "https://images.example.com/article-1.webp",
+      category: "technology",
       rewrittenText:
         "A stronger rewritten headline\n\nOpening paragraph 1 provides the key context.\n\nSecond paragraph 1 develops the report.",
     });
@@ -120,6 +131,11 @@ describe("NewsArticlePageContent", () => {
       screen.getAllByRole("link", { name: /所有已核准報道/u }).every((link) => link.getAttribute("href") === "/"),
     ).toBe(true);
     expect(screen.getByRole("link", { name: related.title }).getAttribute("href")).toBe("/news/article-2");
+    expect(
+      screen
+        .getAllByRole("link", { name: "科技" })
+        .some((link) => link.getAttribute("href") === "/technology"),
+    ).toBe(true);
   });
 
   it("omits unavailable sidebar sections", () => {

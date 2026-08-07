@@ -10,8 +10,13 @@ import {
 } from "@/components/news/article-content";
 import { EditorialPublicFooter, EditorialPublicHeader } from "@/components/news/editorial-public-chrome";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
+import {
+  NEWS_CATEGORIES,
+  type NewsCategory,
+  type NewsCategoryDefinition,
+} from "@/lib/shared/news-categories";
 
-const MAX_HOMEPAGE_ARTICLES = 15;
+const CATEGORY_SHELF_SIZE = 3;
 const PROTOTYPE_TOPICS = ["生成式 AI", "數碼共融", "社區創新", "影響力營運"];
 
 export {
@@ -32,15 +37,21 @@ export interface HomepageArticle {
 export interface HomepageView {
   lead: HomepageArticle | null;
   related: HomepageArticle[];
-  featureColumns: HomepageArticle[][];
+  categoryShelves: HomepageCategoryShelf[];
   latest: HomepageArticle[];
   topics: string[];
+}
+
+export interface HomepageCategoryShelf {
+  category: NewsCategoryDefinition;
+  articles: HomepageArticle[];
 }
 
 interface PrototypeArticleDefinition {
   id: string;
   feedName: string;
   title: string;
+  category: NewsCategory;
   summary?: string;
   author?: string;
   publishedAt: string;
@@ -52,6 +63,7 @@ function prototypeArticle({
   id,
   feedName,
   title,
+  category,
   summary,
   author,
   publishedAt,
@@ -74,6 +86,7 @@ function prototypeArticle({
       rewrittenText: [title, ...keyPoints].join("\n\n"),
       createdAt: timestamp,
       updatedAt: timestamp,
+      category,
     },
     summary: summary ?? null,
     keyPoints,
@@ -87,6 +100,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-community-tech",
     feedName: "科技 × 社企編輯室",
     title: "當公共 AI 走進社區，誰來定義真正需要解決的問題？",
+    category: "technology",
     summary: "從長者數碼支援到社企營運分析，真正的考驗不只是模型能力，而是科技能否回應每一種日常需要。",
     author: "科技 × 社企編輯室",
     publishedAt: "2026-07-28T08:30:00+08:00",
@@ -101,6 +115,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-accessible-ai",
     feedName: "科技",
     title: "產品團隊如何讓 AI 介面回應不同使用能力",
+    category: "technology",
     publishedAt: "2026-07-28T08:10:00+08:00",
     imageUrl: "https://picsum.photos/seed/accessible-ai/720/405.webp?grayscale",
   }),
@@ -108,6 +123,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-repair-network",
     feedName: "社企專欄",
     title: "維修社企如何把技能、零件與社區需要連起來",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T07:55:00+08:00",
     imageUrl: "https://picsum.photos/seed/repair-network/720/405.webp?grayscale",
   }),
@@ -115,6 +131,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-open-source-tech",
     feedName: "科技",
     title: "開源團隊重新設計繁體中文模型的評測方法",
+    category: "technology",
     summary: "新框架不只比較答案正確率，也把粵語語境、資料透明度與實際使用情境納入測試。",
     author: "何日安",
     publishedAt: "2026-07-28T07:40:00+08:00",
@@ -124,18 +141,21 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-ai-product-team",
     feedName: "產品與數據",
     title: "小型團隊開始評估 AI 工具真正節省的工時",
+    category: "technology",
     publishedAt: "2026-07-28T07:20:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-inclusive-design",
     feedName: "數碼共融",
     title: "無障礙設計正在成為產品開發的基本功",
+    category: "technology",
     publishedAt: "2026-07-28T07:00:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-shared-kitchen",
     feedName: "社企專欄",
     title: "共享廚房如何在使命、成本與成長之間建立平衡",
+    category: "social-enterprise",
     summary: "團隊把共同採購、人才培訓與會員制度放進同一營運模型，尋找能夠長期延續的收入。",
     author: "梁文希",
     publishedAt: "2026-07-28T06:40:00+08:00",
@@ -145,48 +165,56 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     id: "prototype-mobile-services",
     feedName: "社區創新",
     title: "流動服務如何維持一個沒有固定店面的社企",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T06:20:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-repair-costs",
     feedName: "循環經濟",
     title: "維修網絡公布首年營運筆記與真實成本",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T06:00:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-cantonese-voice",
     feedName: "科技",
     title: "粵語語音模型公開首階段用戶研究與測試限制",
+    category: "technology",
     publishedAt: "2026-07-28T11:02:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-device-repair",
     feedName: "社企專欄",
     title: "裝置維修社企整合回收、零件供應與技能培訓資訊",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T10:35:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-low-power-sensors",
     feedName: "科技",
     title: "低耗能感應器進入社區服務場景的第二輪測試",
+    category: "technology",
     publishedAt: "2026-07-28T09:48:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-shared-tools",
     feedName: "社企專欄",
     title: "跨區共享工具網絡開始小規模會員制試行",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T09:10:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-public-data",
     feedName: "科技",
     title: "公共數據平台加入更清晰的退出與資料刪除機制",
+    category: "technology",
     publishedAt: "2026-07-28T08:42:00+08:00",
   }),
   prototypeArticle({
     id: "prototype-caregiver-employment",
     feedName: "社企專欄",
     title: "照顧者就業社企分享彈性排班的首年觀察",
+    category: "social-enterprise",
     publishedAt: "2026-07-28T08:05:00+08:00",
   }),
 ];
@@ -205,18 +233,32 @@ export function buildHomepageView(
 ): HomepageView {
   const seenArticleIds = new Set<string>();
   const homepageArticles = articles.reduce<HomepageArticle[]>((selected, article) => {
-    if (selected.length >= MAX_HOMEPAGE_ARTICLES || seenArticleIds.has(article.id)) {
+    if (article.status !== "approved" || seenArticleIds.has(article.id)) {
       return selected;
     }
     seenArticleIds.add(article.id);
     selected.push(toHomepageArticle(article));
     return selected;
-  }, []);
-  const completeHomepageArticles = [
-    ...homepageArticles,
-    ...PROTOTYPE_HOMEPAGE_ARTICLES.slice(homepageArticles.length),
-  ];
-  const featurePool = completeHomepageArticles.slice(3, 9);
+  }, []).sort(
+    (left, right) => articleTimestamp(right.article) - articleTimestamp(left.article),
+  );
+  const completeHomepageArticles = [...homepageArticles, ...PROTOTYPE_HOMEPAGE_ARTICLES];
+  const related = completeHomepageArticles
+    .filter((item) => item.article.id !== completeHomepageArticles[0]?.article.id)
+    .slice(0, 2);
+  const categoryShelves = NEWS_CATEGORIES.map((category) => {
+    const categoryArticles = homepageArticles.filter(
+      ({ article }) => article.category === category.value,
+    );
+    const prototypeArticles = PROTOTYPE_HOMEPAGE_ARTICLES.filter(
+      ({ article }) => article.category === category.value,
+    );
+
+    return {
+      category,
+      articles: [...categoryArticles, ...prototypeArticles].slice(0, CATEGORY_SHELF_SIZE),
+    };
+  });
   const topics = [
     ...new Set(
       homepageArticles
@@ -227,9 +269,9 @@ export function buildHomepageView(
 
   return {
     lead: completeHomepageArticles[0] ?? null,
-    related: completeHomepageArticles.slice(1, 3),
-    featureColumns: [featurePool.slice(0, 3), featurePool.slice(3, 6)],
-    latest: completeHomepageArticles.slice(9, 15),
+    related,
+    categoryShelves,
+    latest: homepageArticles.length > 0 ? homepageArticles : [...PROTOTYPE_HOMEPAGE_ARTICLES],
     topics: topics.length > 0 ? topics : [...PROTOTYPE_TOPICS],
   };
 }
@@ -264,6 +306,12 @@ function articleHref(article: HomepageArticle) {
 
 function homepageArticleTitle(article: HomepageArticle) {
   return articleDisplayTitle(article.article);
+}
+
+function homepageArticleCategoryLabel(article: HomepageArticle) {
+  return NEWS_CATEGORIES.find(
+    ({ value }) => value === article.article.category,
+  )?.label ?? article.article.feedName;
 }
 
 function StoryLink({
@@ -347,53 +395,97 @@ function RelatedStory({ article }: { article: HomepageArticle }) {
       <p>
         {article.article.feedName}・{formatDate(timestamp)}
       </p>
-      <h2>
+      <h3>
         <StoryLink article={article}>{title}</StoryLink>
-      </h2>
+      </h3>
     </article>
   );
 }
 
-function FeatureStory({ article }: { article: HomepageArticle }) {
+function CategoryFeature({ article }: { article: HomepageArticle }) {
   const timestamp = articleTimestamp(article.article);
   const title = homepageArticleTitle(article);
   return (
-    <>
-      <figure className="news-v1-column-visual">
+    <div className="news-v1-category-feature">
+      <figure>
         <ArticleImage
           article={article}
-          width={960}
-          height={540}
-          alt={`${title} 的新聞示意圖片`}
+          width={720}
+          height={450}
+          alt={`${title} 的分類新聞圖片`}
         />
-        <figcaption>
-          <span>{article.article.feedName}</span>
-          <span>示意圖片</span>
-        </figcaption>
       </figure>
-      <article className="news-v1-feature-story">
-        <p className="news-v1-story-label">已核准報道・{formatDate(timestamp)}</p>
-        <h4>
+      <article>
+        <p className="news-v1-story-label">
+          {homepageArticleCategoryLabel(article)}・{formatDate(timestamp)}
+        </p>
+        <h3>
           <StoryLink article={article}>{title}</StoryLink>
-        </h4>
+        </h3>
         {article.summary ? <p>{article.summary}</p> : null}
         <p className="news-v1-article-meta">
           {article.article.author ?? article.article.feedName}・{formatTime(timestamp)}
         </p>
       </article>
-    </>
+    </div>
   );
 }
 
-function ShortStory({ article }: { article: HomepageArticle }) {
+function CategorySupportStory({ article }: { article: HomepageArticle }) {
+  const timestamp = articleTimestamp(article.article);
   const title = homepageArticleTitle(article);
   return (
     <article>
-      <p>{article.article.feedName}</p>
-      <h4>
-        <StoryLink article={article}>{title}</StoryLink>
-      </h4>
+      <figure>
+        <ArticleImage
+          article={article}
+          width={240}
+          height={150}
+          alt={`${title} 的分類新聞圖片`}
+        />
+      </figure>
+      <div>
+        <p>{formatDate(timestamp)}</p>
+        <h3>
+          <StoryLink article={article}>{title}</StoryLink>
+        </h3>
+      </div>
     </article>
+  );
+}
+
+function CategoryShelf({ shelf }: { shelf: HomepageCategoryShelf }) {
+  const [feature, ...supports] = shelf.articles;
+  const headingId = `news-v1-category-${shelf.category.value}`;
+
+  if (!feature) return null;
+
+  return (
+    <section
+      className="news-v1-category-shelf"
+      id={`news-v1-${shelf.category.value}`}
+      aria-labelledby={headingId}
+    >
+      <header className="news-v1-category-heading">
+        <div>
+          <p>{shelf.category.englishLabel.toUpperCase()}</p>
+          <h2 id={headingId}>{shelf.category.label}</h2>
+        </div>
+        <div>
+          <span>{String(shelf.articles.length).padStart(2, "0")} STORIES</span>
+          <Link href={shelf.category.href}>查看全部</Link>
+        </div>
+      </header>
+
+      <CategoryFeature article={feature} />
+      {supports.length > 0 ? (
+        <div className="news-v1-category-supports">
+          {supports.map((article) => (
+            <CategorySupportStory key={article.article.id} article={article} />
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -411,7 +503,10 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
           <article className="news-v1-hero-copy">
             <div className="news-v1-hero-marker">
               <span aria-hidden="true" />
-              <p>APPROVED NEWSROOM</p>
+              <p>
+                TOP STORY
+                {view.lead ? ` / ${homepageArticleCategoryLabel(view.lead)}` : ""}
+              </p>
             </div>
 
             <h1 id="news-v1-lead-heading">
@@ -484,51 +579,12 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
           ) : null}
         </section>
 
-        {view.featureColumns.length > 0 ? (
-          <section
-            className="news-v1-page-shell news-v1-focus-section"
-            id="news-v1-features"
-            aria-labelledby="news-v1-focus-heading"
-          >
-            <header className="news-v1-section-heading">
-              <div>
-                <p>01 / EDITOR&apos;S DESK</p>
-                <h2 id="news-v1-focus-heading">精選報道</h2>
-              </div>
-              <p>FEATURES・REPORTS・FIELD NOTES</p>
-            </header>
-
-            <div className="news-v1-focus-grid">
-              {view.featureColumns.map((column, index) => {
-                const [feature, ...shortStories] = column;
-                if (!feature) return null;
-                return (
-                  <section
-                    className="news-v1-focus-column"
-                    key={feature.article.id}
-                    aria-labelledby={`news-v1-focus-column-${index}`}
-                  >
-                    <header className="news-v1-column-heading">
-                      <p>{index === 0 ? "FEATURED REPORTS" : "MORE REPORTS"}</p>
-                      <h3 id={`news-v1-focus-column-${index}`}>
-                        {index === 0 ? "編輯精選" : "更多報道"}
-                      </h3>
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                    </header>
-
-                    <FeatureStory article={feature} />
-                    {shortStories.length > 0 ? (
-                      <div className="news-v1-short-list">
-                        {shortStories.map((article) => (
-                          <ShortStory key={article.article.id} article={article} />
-                        ))}
-                      </div>
-                    ) : null}
-                  </section>
-                );
-              })}
-            </div>
-          </section>
+        {view.categoryShelves.length > 0 ? (
+          <div className="news-v1-page-shell news-v1-category-grid">
+            {view.categoryShelves.map((shelf) => (
+              <CategoryShelf key={shelf.category.value} shelf={shelf} />
+            ))}
+          </div>
         ) : null}
 
         {view.latest.length > 0 ? (
@@ -539,7 +595,7 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
           >
             <header className="news-v1-section-heading">
               <div>
-                <p>02 / LATEST NOTES</p>
+                <p>03 / LATEST NOTES</p>
                 <h2 id="news-v1-latest-heading">最新短訊</h2>
               </div>
               <p>{issueDate}・持續更新</p>
@@ -553,7 +609,7 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
                     <time dateTime={new Date(timestamp * 1_000).toISOString()}>
                       {formatTime(timestamp)}
                     </time>
-                    <p>{article.article.feedName}</p>
+                    <p>{homepageArticleCategoryLabel(article)}</p>
                     <h3>
                       <StoryLink article={article}>{homepageArticleTitle(article)}</StoryLink>
                     </h3>
