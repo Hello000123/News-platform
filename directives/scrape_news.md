@@ -28,7 +28,7 @@ Collect the latest articles from 26 tech news sites (HK + international) and pus
 | Android Police | WordPress | `https://www.androidpolice.com/feed/` | No | Feed + scrape page (`article`) |
 | Android Authority | WordPress | `https://www.androidauthority.com/feed/` | No | Feed + scrape page (`main`) |
 | Wccftech | WordPress | `https://wccftech.com/feed/` | No | Feed + scrape page (`main`) |
-| Tom's Hardware | Future | `https://www.tomshardware.com/feeds/all` | No | Feed + scrape page (`article`) |
+| Tom's Hardware | Future | `https://www.tomshardware.com/feeds/all` | No | Feed + scrape full page body (`#article-body`, with `article` fallback) |
 | TechRadar | Future | `https://www.techradar.com/rss` | No | Feed + scrape page (`article`) |
 | WIRED | Condé Nast | `https://www.wired.com/feed/rss` | No | Feed + scrape page (`.article__body`) |
 | XDA Developers | Valnet | `https://www.xda-developers.com/feed/` | No | Feed + scrape page (`article`) |
@@ -120,6 +120,7 @@ If R2 credentials are missing, the run still scrapes and writes locally to `.tmp
 - **HTTP 202 bot challenges** — Ars Technica returns 202 with an empty body to non-browser clients, so its article pages cannot be scraped. Its feed carries a solid excerpt → configured as feed-only (`content_in_feed: true`, no selectors).
 - **Wrong charset declarations** — some sites (on.cc) declare `ISO-8859-1` but serve UTF-8 Chinese, causing mojibake. `utils.fetch_text` overrides to `apparent_encoding` when the declared encoding is one of iso-8859-1/ascii/windows-1252 (guarded to pages < 2MB to avoid slow detection).
 - **Broad `article`/`main` selectors** — some sites (Tom's Hardware, TechRadar, Android Police, The Verge, Engadget) yield large content via `article`/`main`; acceptable but may include boilerplate. Tighten with `content_remove` if output looks noisy.
+- **Tom's Hardware article body** — its RSS item is only a preview. Scrape `#article-body` before the broad `article` fallback, then remove the utility bar, adverts, video carousel, recirculation links, and newsletter form. This retains the complete report while excluding comments and large unrelated-news sections that otherwise dilute rewrite input.
 - **WAF/403** — if a source starts returning 403/429, check its structure changed. If `requests` fails, the source is skipped and logged with `[error]`; the run continues for other sources.
 - **Dedup** — SQLite table `seen(source, article_id)` in `data/scraper.db`. Never rescrapes the same article. Delete the `data/` dir to reset and re-scrape.
 - **Rate limiting** — `REQUEST_DELAY` sleep between article scrapes. Feeds are fetched once per run, never hammered.

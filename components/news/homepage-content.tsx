@@ -531,12 +531,6 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
               </div>
             ) : null}
 
-            <aside className="news-v1-editorial-note" aria-label="編輯摘要">
-              <p>EDITOR&apos;S NOTE</p>
-              <p>
-                PressReady 將通過編輯流程的報道整理成清晰、可閱讀的公開新聞。
-              </p>
-            </aside>
           </article>
 
           <div className="news-v1-hero-media">

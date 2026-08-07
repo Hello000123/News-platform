@@ -20,7 +20,9 @@ describe("pipeline rewrite instructions", () => {
   });
 
   it("defines newsroom structure, source priority, conflicts, and title-bounded fidelity", () => {
-    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("香港繁體中文精簡新聞報道");
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("香港繁體中文完整新聞報道");
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("主要文章正文");
+    expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("至少三個短段落");
     expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain("倒金字塔結構");
     expect(POPULAR_PIPELINE_REWRITE_INSTRUCTION).toContain(
       "不得提及排名、熱門程度、來源數量或批次處理",

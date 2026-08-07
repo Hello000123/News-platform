@@ -9,6 +9,7 @@ import { PipelineWorkspace } from "@/components/pipeline/pipeline-workspace";
 import {
   getPipelineArticleContent,
   listPipelineArticles,
+  listPopularPipelineStories,
   rewritePipelineArticle,
   uploadPipelineArticleImage,
   updatePipelineArticlePost,
@@ -160,6 +161,54 @@ describe("PipelineWorkspace post composer", () => {
       imageUrl: "https://images.example.com/new.webp",
     });
     expect(await screen.findByText(/is now live on the homepage/u)).toBeTruthy();
+  }, 20_000);
+
+  it("requests a detailed full-source article for each Top 5 story", async () => {
+    const newArticle = {
+      ...article,
+      status: "new" as const,
+      rewrittenText: null,
+    };
+    mockArticleLoad(newArticle);
+    vi.mocked(listPopularPipelineStories).mockResolvedValue({
+      stories: [
+        {
+          articleId: newArticle.id,
+          title: newArticle.title,
+          sourceCount: 1,
+          reportCount: 1,
+          publishedAt: newArticle.pubDate,
+          relatedArticleIds: [newArticle.id],
+        },
+      ],
+    });
+    vi.mocked(rewritePipelineArticle).mockResolvedValue({
+      article: {
+        ...newArticle,
+        status: "rewritten",
+        rewrittenText: "完整新聞標題\n\n完整新聞正文。",
+      },
+      finalText: "完整新聞標題\n\n完整新聞正文。",
+      validation: { status: "passed", attempts: 1 },
+    });
+    const user = userEvent.setup();
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    await screen.findByRole("heading", { level: 2, name: newArticle.title }, { timeout: 15_000 });
+    await user.click(screen.getByRole("button", { name: "Rewrite top 5 in Chinese" }));
+
+    await waitFor(() =>
+      expect(rewritePipelineArticle).toHaveBeenCalledWith(
+        newArticle.id,
+        expect.objectContaining({
+          model: "grok-4.5",
+          outputLanguage: "traditional_chinese",
+          lengthOption: "more_detailed",
+          relatedArticleIds: [newArticle.id],
+          instruction: expect.stringContaining("完整新聞報道"),
+        }),
+      ),
+    );
   }, 20_000);
 
   it("uploads an editor-owned photo and keeps the managed image with the post", async () => {

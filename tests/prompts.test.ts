@@ -50,6 +50,7 @@ const rewriteInstructionLatinAllowlist = new Set([
   "currentTurn",
   "earlierTurns",
   "full_article",
+  "homepage_article",
   "imageContext",
   "lengthOption",
   "linkedText",
@@ -170,6 +171,7 @@ describe("agent prompts", () => {
       "審稿意見、較早的人工智能改寫及使用者改善指示只可決定編採方向",
       "每項輸出陳述都必須可由來源文字直接支持",
       "rewriteMode 為 full_article",
+      "rewriteMode 為 homepage_article",
       "rewriteMode 為 news_brief",
       "改寫模式只改變必須覆蓋的資料範圍",
       "verbatimMixedLanguageTerms 和 verbatimSourceScriptNames 中每個項目都必須逐字出現",
@@ -216,7 +218,7 @@ describe("agent prompts", () => {
       "正在修正未能擺脫來源複製的稿件",
     );
     expect(CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT).toContain(
-      "只有 rewriteMode 為 news_brief 時",
+      "rewriteMode 為 news_brief 或 homepage_article 時",
     );
   });
 
@@ -407,6 +409,31 @@ describe("agent prompts", () => {
     expect(payload.allowedNumericFacts).toContainEqual({ value: "30", unit: "w" });
   });
 
+  it("uses the complete saved source for a detailed homepage article", () => {
+    const sourceTail = "This late source paragraph explains why scientists will compare the impact site.";
+    const homepageSource: SourceSnapshot = {
+      primaryText: `The rocket stage is expected to hit the moon.\n\n${"Supported background detail. ".repeat(80)}${sourceTail}`,
+      userDraft: "",
+      linkedTitle: "Rocket stage expected to hit the moon",
+      imageContext: [],
+    };
+    const prompt = createRewriteUserPrompt(homepageSource, null, {
+      history: [],
+      refinement: { lengthOption: "more_detailed", instruction: "" },
+      outputLanguage: "traditional_chinese",
+      relaxedFidelity: true,
+    });
+    const payload = embeddedJson(prompt) as {
+      rewriteMode: string;
+      source: SourceSnapshot;
+    };
+
+    expect(prompt).toContain("改寫模式：完整網站新聞報道");
+    expect(prompt).toContain("不得只重述標題");
+    expect(payload.rewriteMode).toBe("homepage_article");
+    expect(payload.source.primaryText).toContain(sourceTail);
+  });
+
   it("extracts supported quotation styles, mixed-language terms, and numeric values exactly", () => {
     expect(
       extractVerbatimDirectQuotations(
@@ -439,6 +466,14 @@ describe("agent prompts", () => {
       { value: "20", unit: "count:person", raw: "20" },
       { value: "30", unit: "w", raw: "30" },
     ]);
+    expect(extractNumericFacts("A piece of rocket debris will hit the moon.")).toContainEqual({
+      value: "1",
+      unit: "count:unit",
+      raw: "A piece",
+    });
+    expect(extractNumericFacts("A preferred source described the update.")).not.toContainEqual(
+      expect.objectContaining({ value: "1", unit: "count:unit" }),
+    );
     expect(
       extractVerbatimSourceScriptNames(
         "王繹嘉、陳凱然、馬端行考獲佳績。超級狀元劉彥彤表示，程熹、羅苡庭，並多謝家人、老師及朋友到場。",

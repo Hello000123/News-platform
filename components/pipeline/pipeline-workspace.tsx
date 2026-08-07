@@ -373,6 +373,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
           await rewritePipelineArticle(story.articleId, {
             model,
             outputLanguage: "traditional_chinese",
+            lengthOption: "more_detailed",
             relatedArticleIds: story.relatedArticleIds,
             instruction: POPULAR_PIPELINE_REWRITE_INSTRUCTION,
           });

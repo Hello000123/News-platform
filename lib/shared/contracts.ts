@@ -247,10 +247,10 @@ export const rewriteContextSchema = z
       instruction: "",
     }),
     outputLanguage: rewriteOutputLanguageSchema.optional(),
-    // Summary briefs (such as the pipeline's top-five batch) legitimately
-    // compress body detail. When enabled, required coverage comes from the
-    // canonical title while every included fact remains grounded in source
-    // evidence.
+    // Scraped pipeline reports may include navigation or publisher boilerplate.
+    // When enabled, required coverage is bounded by the canonical title while
+    // every included fact remains grounded in the complete source evidence.
+    // Output length remains independently controlled by lengthOption.
     relaxedFidelity: z.boolean().optional(),
   })
   .strict();

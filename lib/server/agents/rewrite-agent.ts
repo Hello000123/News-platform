@@ -225,9 +225,9 @@ function collectSafeCandidateFailures(
     });
   }
 
-  const newsBrief = Boolean(context.relaxedFidelity);
-  const fidelityText = rewriteFidelityText(source, newsBrief);
-  const minimumTermLength = newsBrief ? (source.linkedTitle ? 2 : 5) : 0;
+  const headlineBounded = Boolean(context.relaxedFidelity);
+  const fidelityText = rewriteFidelityText(source, headlineBounded);
+  const minimumTermLength = headlineBounded ? (source.linkedTitle ? 2 : 5) : 0;
   const missingMixedLanguageTerms = extractVerbatimMixedLanguageTerms(
     fidelityText,
     minimumTermLength,
@@ -259,7 +259,9 @@ function collectSafeCandidateFailures(
     });
   }
 
-  const evidenceNumericFacts = extractNumericFacts(rewriteEvidenceCorpus(source, newsBrief));
+  const evidenceNumericFacts = extractNumericFacts(
+    rewriteEvidenceCorpus(source, headlineBounded),
+  );
   const outputNumericFacts = extractNumericFacts(candidate);
   const untraceableNumericFacts = outputNumericFacts.filter(
     (fact) => !numericFactHasSupport(fact, evidenceNumericFacts),
@@ -585,8 +587,8 @@ function quotationError(
 }
 
 /**
- * Summary briefs may drop body quotations. In relaxed mode a validation result
- * passes when every unresolved issue is an omitted quotation; altered,
+ * Headline-bounded pipeline rewrites may drop body quotations. A validation
+ * result passes when every unresolved issue is an omitted quotation; altered,
  * invented, or misattributed quotations remain failures.
  */
 function quotationValidationPasses(

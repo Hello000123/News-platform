@@ -279,8 +279,8 @@
     "content_in_feed": false,
     "article_selectors": {
       "title": ["h1"],
-      "content": ["article"],
-      "content_remove": ["script", "style"],
+      "content": ["#article-body", "article"],
+      "content_remove": ["#utility-bar", ".ad-unit", "[data-component-name=\"JwPlayer:Carousel\"]", "[data-component-name=\"Recirculation:ArticleRiver\"]", ".slice-container-newsletterForm", "script", "style"],
       "author": [],
       "date": []
     }

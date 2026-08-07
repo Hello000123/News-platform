@@ -151,6 +151,11 @@ describe("NewsHomepage rendering", () => {
     expect(screen.getByText("目錄", { selector: "summary > span:first-child" })).toBeTruthy();
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("link", { name: "當公共 AI 走進社區，誰來定義真正需要解決的問題？" })).toBeNull();
+    expect(container.querySelector(".news-v1-editorial-note")).toBeNull();
+    expect(screen.queryByText("EDITOR'S NOTE")).toBeNull();
+    expect(
+      screen.queryByText("PressReady 將通過編輯流程的報道整理成清晰、可閱讀的公開新聞。"),
+    ).toBeNull();
   });
 
   it("renders rewritten headlines and saved images in the live editorial slots", () => {

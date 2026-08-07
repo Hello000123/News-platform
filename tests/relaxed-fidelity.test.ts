@@ -105,6 +105,11 @@ describe("pipeline relaxed fidelity", () => {
       title: "螢幕尺寸說明",
       candidate: "螢幕尺寸說明\n\n螢幕採用27吋面板，並提供24吋自訂顯示模式。",
     },
+    {
+      source: "A piece of rocket debris is set to hit the moon while orbiters observe it.",
+      title: "SpaceX rocket debris set to hit the moon",
+      candidate: "SpaceX火箭殘骸將撞月\n\n一枚SpaceX火箭殘骸將撞向月球，軌道探測器會觀察事件。",
+    },
   ])("accepts supported numeric localization: $title", async ({ source, title, candidate }) => {
     const result = await runRewriteAgent(
       snapshot(source, { linkedTitle: title }),
@@ -124,6 +129,20 @@ describe("pipeline relaxed fidelity", () => {
       runRewriteAgent(
         snapshot("The Gigabyte GO27Q24A monitor has a 27-inch panel.", {
           linkedTitle: "螢幕尺寸說明",
+        }),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
+  it("does not treat an unrelated English indefinite article as count evidence", async () => {
+    const badCandidate = "SpaceX消息更新\n\n報道提到一枚SpaceX裝置。";
+    await expect(
+      runRewriteAgent(
+        snapshot("A preferred source described the SpaceX update.", {
+          linkedTitle: "SpaceX update",
         }),
         null,
         async () => badCandidate,

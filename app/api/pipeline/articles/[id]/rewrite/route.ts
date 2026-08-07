@@ -164,9 +164,9 @@ export async function POST(request: Request, context: RouteContext) {
           .join("\n\n"),
       },
       outputLanguage: input.outputLanguage ?? DEFAULT_REWRITE_OUTPUT_LANGUAGE,
-      // The top-five batch produces summary briefs for editorial review. Core
-      // coverage comes from the canonical title, while every included numeric
-      // fact and quotation remains grounded in clean source evidence.
+      // Scraped pages can contain publisher chrome, so mandatory coverage is
+      // bounded by the canonical title. The full saved source still supplies
+      // evidence and lengthOption independently controls article depth.
       relaxedFidelity: true,
     });
     const rewrite = await rewriteWithFeedback(

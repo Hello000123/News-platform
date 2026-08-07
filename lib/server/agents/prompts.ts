@@ -113,11 +113,11 @@ export function extractVerbatimSourceScriptNames(draft: string) {
 }
 
 /**
- * The mandatory-fidelity window for summary briefs. Returns the source's first
- * non-byline paragraph so a concise rewrite must preserve the essential identifiers
- * in the lede without being forced to keep every body-term, spec number, and
- * quotation verbatim. Falls back to the whole text when the source is a single
- * paragraph.
+ * The mandatory-fidelity window for headline-bounded rewrites. Returns the
+ * source's first non-byline paragraph so a rewrite must preserve the essential
+ * identifiers in the lede without being forced to keep publisher chrome, every
+ * body-term, spec number, and quotation verbatim. Falls back to the whole text
+ * when the source is a single paragraph.
  */
 export function sourceLead(text: string) {
   const normalized = text.normalize("NFC").trim();
@@ -187,9 +187,9 @@ function cleanSupportingReportEvidence(text: string) {
  * instructions are deliberately excluded so they cannot whitelist a number or
  * quotation that does not occur in the underlying reporting.
  */
-export function rewriteEvidenceCorpus(source: SourceSnapshot, newsBrief = false) {
+export function rewriteEvidenceCorpus(source: SourceSnapshot, headlineBounded = false) {
   const linkedText = source.linkedText
-    ? newsBrief
+    ? headlineBounded
       ? cleanSupportingReportEvidence(source.linkedText)
       : source.linkedText
     : "";
@@ -203,9 +203,9 @@ export function rewriteEvidenceCorpus(source: SourceSnapshot, newsBrief = false)
     .join("\n\n");
 }
 
-/** Core coverage for a summary brief comes from its canonical story title. */
-export function rewriteFidelityText(source: SourceSnapshot, newsBrief = false) {
-  if (!newsBrief) return source.primaryText;
+/** Core coverage for a headline-bounded rewrite comes from its canonical title. */
+export function rewriteFidelityText(source: SourceSnapshot, headlineBounded = false) {
+  if (!headlineBounded) return source.primaryText;
   return source.linkedTitle?.trim() || sourceLead(source.primaryText);
 }
 
@@ -310,7 +310,7 @@ function parseChineseInteger(raw: string) {
 }
 
 const numericSuffixPattern =
-  /^\s*(?:[-‐‑‒–—]\s*)?(?:(百分比|美元|美金|港元|港幣|人民幣|個座位|座位|%|％|名|位|人|部|款|個|台|套|家|間|宗|項|件|輛|架|枚|次|倍|×|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|devices?|units?|models?|products?|versions?|reports?|cases?|seats?|years?|months?|days?|hours?|minutes?|seconds?|times?|inch(?:es)?|x|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|km|cm|mm|kW|W)\b)/iu;
+  /^\s*(?:[-‐‑‒–—]\s*)?(?:(百分比|美元|美金|港元|港幣|人民幣|個座位|座位|%|％|名|位|人|部|款|個|台|套|家|間|宗|項|件|輛|架|枚|次|倍|×|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|reports?|cases?|seats?|years?|months?|days?|hours?|minutes?|seconds?|times?|inch(?:es)?|x|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|km|cm|mm|kW|W)\b)/iu;
 const numericCurrencyPrefixPattern =
   /(HK\$|US\$|USD|HKD|CNY|RMB|港幣|港元|美元|人民幣|\$)\s*$/iu;
 
@@ -355,6 +355,9 @@ const englishMonthNumbers: Readonly<Record<string, string>> = {
   dec: "12",
 };
 
+const englishSingularCountPattern =
+  /(?<![\p{L}\p{N}])(?:a|an|one)\s+(piece|object|device|unit|vehicle|rocket|stage|satellite|spacecraft|monitor|console|system|model|product|version|item|report|case|seat|person|user|customer|worker|employee|participant|attendee|student)\b/giu;
+
 function normalizeNumericUnit(raw: string) {
   const unit = raw.normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/gu, "");
   if (["%", "百分比", "percent", "percentage"].includes(unit)) return "percent";
@@ -363,8 +366,8 @@ function normalizeNumericUnit(raw: string) {
   if (["cny", "rmb", "人民幣", "元"].includes(unit)) return "currency:cny";
   if (unit === "$") return "currency:dollar";
   if (["people", "person", "persons", "user", "users", "customer", "customers", "worker", "workers", "employee", "employees", "participant", "participants", "attendee", "attendees", "student", "students", "名", "位", "人"].includes(unit)) return "count:person";
-  if (["device", "devices", "unit", "units", "部", "台", "套", "件", "輛", "架", "枚"].includes(unit)) return "count:unit";
-  if (["model", "models", "product", "products", "version", "versions", "款", "個", "項"].includes(unit)) return "count:item";
+  if (["piece", "pieces", "object", "objects", "device", "devices", "unit", "units", "vehicle", "vehicles", "rocket", "rockets", "stage", "stages", "satellite", "satellites", "spacecraft", "monitor", "monitors", "console", "consoles", "system", "systems", "部", "台", "套", "件", "輛", "架", "枚"].includes(unit)) return "count:unit";
+  if (["model", "models", "product", "products", "version", "versions", "item", "items", "款", "個", "項"].includes(unit)) return "count:item";
   if (["report", "reports", "case", "cases", "宗"].includes(unit)) return "count:case";
   if (["seat", "seats", "個座位", "座位", "席"].includes(unit)) return "count:seat";
   if (["x", "×", "倍"].includes(unit)) return "ratio:multiplier";
@@ -466,6 +469,17 @@ export function extractNumericFacts(text: string): NumericFact[] {
     if (normalized === "may" && raw === normalized) continue;
     const value = englishMonthNumbers[normalized];
     if (value) facts.push({ value, unit: "time:month", raw });
+  }
+
+  // English singular determiners carry an explicit count even though they do
+  // not contain a digit. Keep the noun allowlist narrow so ordinary articles
+  // such as "a preferred source" cannot whitelist an invented Chinese count.
+  for (const match of text.matchAll(englishSingularCountPattern)) {
+    facts.push({
+      value: "1",
+      unit: normalizeNumericUnit(match[1]),
+      raw: match[0],
+    });
   }
 
   return facts.filter(
@@ -822,6 +836,7 @@ export const REWRITE_SYSTEM_PROMPT = [
   "",
   "改寫模式",
   "- rewriteMode 為 full_article 時，須完整改寫主要文章，保留所有重要事實、限定語、消息來源，以及各個必須保留清單中的項目。",
+  "- rewriteMode 為 homepage_article 時，須充分運用完整 primaryText 中與主題相關而且來源明確的細節，寫成有實質內容的完整網站新聞報道，不得只重述標題。來源資料充足時，一般以導語加上至少三個短段落交代事件、背景、影響及後續；資料不足時寧可縮短，不得重複或補寫。",
   "- rewriteMode 為 news_brief 時，須撰寫精簡新聞簡報。主要文章標題中的核心事件、人物、品牌、型號及數值是最低覆蓋要求；非核心正文細節和來源引文可以省略。不得因精簡而改變任何實際採用的事實。",
   "- 改寫模式只改變必須覆蓋的資料範圍，不會放寬反捏造、數值追溯、人名、專有名詞或引文規則。",
   "",
@@ -829,7 +844,7 @@ export const REWRITE_SYSTEM_PROMPT = [
   "- verbatimMixedLanguageTerms 和 verbatimSourceScriptNames 中每個項目都必須逐字出現至少一次。所有實際採用的人名、品牌、型號及產品名稱都須沿用來源文字；來源沒有提供的譯名或羅馬字拼寫不得自行創作。",
   "- 每個輸出數值及其貨幣、單位或數量類別都必須與 allowedNumericFacts 中同一項事實相符。只有數值相同但貨幣、單位或所指事物不同，仍屬沒有來源支持。不得自行換算、四捨五入或本地化數值。",
   "- verbatimDirectQuotations 中每個項目都必須連同內部標點逐字保留；可以更換等效的外層引號，但不得修正、縮短、拆分、合併、翻譯或意譯引號內文字。",
-  "- 不得把間接引語或輔助報道內容變成新的直接引文。輸出中的每段直接引文都必須已逐字出現在 primaryText，並緊接來源所載的同一名發言者。news_brief 可以完全不採用直接引文。",
+  "- 不得把間接引語或輔助報道內容變成新的直接引文。輸出中的每段直接引文都必須已逐字出現在 primaryText，並緊接來源所載的同一名發言者。news_brief 和 homepage_article 可以完全不採用直接引文。",
   "",
   "香港繁體中文",
   "- requiredOutputLanguage 要求繁體中文時，標題及敘述必須使用香港繁體中文、香港常用書面語及中文標點；避免簡體字、內地新聞套語、生硬直譯、口語填充和宣傳腔。",
@@ -882,9 +897,24 @@ export const CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT = [
   "你是一名克制的新聞編輯，正在修正未能擺脫來源複製的稿件。",
   "上一份候選稿與原文完全相同、只改空白或只改標點；使用者已明確要求改寫，因此該稿無效。",
   "傳回有實質但克制的編採版本：改善標題，並重組至少一句非引文句子或分句次序，使行文更清晰。",
-  "其他位置應保留來源中恰當的措辭。不要只為令稿件看來不同而換字；不得更改、推斷或加入任何事實。只有 rewriteMode 為 news_brief 時，才可按模式規則省略非核心正文細節。",
+  "其他位置應保留來源中恰當的措辭。不要只為令稿件看來不同而換字；不得更改、推斷或加入任何事實。rewriteMode 為 news_brief 或 homepage_article 時，才可按模式規則省略非核心正文細節。",
   "只輸出一行標題，第二行留空，其後輸出完整文章正文。",
 ].join("\n");
+
+type RewriteMode = "full_article" | "homepage_article" | "news_brief";
+
+function rewriteModeForContext(context: RewriteContext): RewriteMode {
+  if (!context.relaxedFidelity) return "full_article";
+  return context.refinement.lengthOption === "more_detailed"
+    ? "homepage_article"
+    : "news_brief";
+}
+
+function rewriteModeDescription(rewriteMode: RewriteMode) {
+  if (rewriteMode === "homepage_article") return "完整網站新聞報道";
+  if (rewriteMode === "news_brief") return "精簡新聞簡報";
+  return "完整文章改寫";
+}
 
 export function createRewriteUserPrompt(
   sourceInput: SourceSnapshot | string,
@@ -895,12 +925,12 @@ export function createRewriteUserPrompt(
   },
 ) {
   const source = normalizeSource(sourceInput);
-  const newsBrief = Boolean(context.relaxedFidelity);
-  const rewriteMode = newsBrief ? "news_brief" : "full_article";
-  const rewriteModeDescription = newsBrief ? "精簡新聞簡報" : "完整文章改寫";
+  const relaxedFidelity = Boolean(context.relaxedFidelity);
+  const rewriteMode = rewriteModeForContext(context);
+  const modeDescription = rewriteModeDescription(rewriteMode);
   const currentTurn = context.history.at(-1) ?? null;
   const earlierTurns = context.history.slice(0, -1);
-  const sourceCorpus = rewriteEvidenceCorpus(source, newsBrief);
+  const sourceCorpus = rewriteEvidenceCorpus(source, relaxedFidelity);
   const verbatimDirectQuotations = extractVerbatimDirectQuotations(source.primaryText);
   // Terms from supporting references are available as factual context, but are
   // mandatory only when they occur in the primary article being rewritten.
@@ -915,12 +945,12 @@ export function createRewriteUserPrompt(
     context.outputLanguage,
   );
   const promptLanguageDescription = rewritePromptLanguageDescription(requiredOutputLanguage);
-  const fidelityText = rewriteFidelityText(source, newsBrief);
-  const mandatoryDirectQuotations = newsBrief ? [] : verbatimDirectQuotations;
-  const mandatoryMixedLanguageTerms = newsBrief
+  const fidelityText = rewriteFidelityText(source, relaxedFidelity);
+  const mandatoryDirectQuotations = relaxedFidelity ? [] : verbatimDirectQuotations;
+  const mandatoryMixedLanguageTerms = relaxedFidelity
     ? extractVerbatimMixedLanguageTerms(fidelityText, 2)
     : verbatimMixedLanguageTerms;
-  const mandatorySourceScriptNames = newsBrief
+  const mandatorySourceScriptNames = relaxedFidelity
     ? extractVerbatimSourceScriptNames(fidelityText)
     : verbatimSourceScriptNames;
   const mandatoryNumericFacts = extractNumericFacts(fidelityText).map(({ value, unit }) => ({
@@ -932,12 +962,14 @@ export function createRewriteUserPrompt(
     review
       ? "立即改寫 primaryText。使用者已明確要求改寫，不論審稿分數如何。"
       : "立即改寫 primaryText。使用者要求在未經預先審稿的情況下直接改寫。只可根據來源和現行改寫指示改善稿件。",
-    `改寫模式：${rewriteModeDescription}`,
+    `改寫模式：${modeDescription}`,
     `語言鎖定：${promptLanguageDescription}`,
     "數值核對：只可採用 allowedNumericFacts 列明的數值與單位組合。",
-    newsBrief
-      ? "按主要文章標題完成最低覆蓋要求；必須保留清單只包含標題核心資料。正文的非核心細節及來源引文可以省略，但每項實際採用的事實仍須有來源支持。不要提及相關報道數量、資料檢索或合併過程。"
-      : "完整改寫主要文章。逐字保留各個必須保留清單中的直接引文、來源文字人名、專有詞語及數值事實；任何翻譯只可放在引號及不可變詞語之外。",
+    rewriteMode === "homepage_article"
+      ? "充分運用完整 primaryText 中與主題相關而且來源明確的內容，寫成有導語及完整正文的網站新聞報道，不得只重述標題。必須保留清單是最低要求，並非內容上限；每項採用的事實仍須有來源支持。不要提及相關報道數量、資料檢索或合併過程。"
+      : rewriteMode === "news_brief"
+        ? "按主要文章標題完成最低覆蓋要求；必須保留清單只包含標題核心資料。正文的非核心細節及來源引文可以省略，但每項實際採用的事實仍須有來源支持。不要提及相關報道數量、資料檢索或合併過程。"
+        : "完整改寫主要文章。逐字保留各個必須保留清單中的直接引文、來源文字人名、專有詞語及數值事實；任何翻譯只可放在引號及不可變詞語之外。",
     JSON.stringify(
       {
         rewriteMode,
@@ -994,9 +1026,8 @@ export function createUnchangedRewriteCorrectionPrompt(
     refinement: { lengthOption: null, instruction: "" },
   },
 ) {
-  const newsBrief = Boolean(context.relaxedFidelity);
-  const rewriteMode = newsBrief ? "news_brief" : "full_article";
-  const rewriteModeDescription = newsBrief ? "精簡新聞簡報" : "完整文章改寫";
+  const rewriteMode = rewriteModeForContext(context);
+  const modeDescription = rewriteModeDescription(rewriteMode);
   const requiredOutputLanguage = requiredOutputLanguageFor(
     source.primaryText,
     context.outputLanguage,
@@ -1011,10 +1042,12 @@ export function createUnchangedRewriteCorrectionPrompt(
       ? "如果審稿沒有指出實質弱點，製作克制的編採版本：改善標題，並重組至少一句非引文句子或有依據的分句次序。其他位置保留來源中恰當的措辭；不得再次回傳相同文字。"
       : "製作克制的編採版本：改善標題，並重組至少一句非引文句子或有依據的分句次序。其他位置保留來源中恰當的措辭；不得再次回傳相同文字。",
     "套用 rewriteContext 中現行的篇幅偏好及每項相容的使用者指示；指示互相衝突時，以最新指示為準。",
-    `改寫模式：${rewriteModeDescription}`,
-    newsBrief
-      ? "可以省略非核心正文細節及來源引文，但主要文章標題的核心資料及各個必須保留項目不可遺漏。"
-      : "須完整改寫主要文章，並保留所有重要而且獲來源支持的事實及各個必須保留項目。",
+    `改寫模式：${modeDescription}`,
+    rewriteMode === "homepage_article"
+      ? "須充分運用完整主要文章中與主題相關而且有來源支持的細節，避免只重述標題；可以省略非核心細節及來源引文，但標題核心資料及各個必須保留項目不可遺漏。"
+      : rewriteMode === "news_brief"
+        ? "可以省略非核心正文細節及來源引文，但主要文章標題的核心資料及各個必須保留項目不可遺漏。"
+        : "須完整改寫主要文章，並保留所有重要而且獲來源支持的事實及各個必須保留項目。",
     `語言鎖定：${promptLanguageDescription}`,
     JSON.stringify(
       {
