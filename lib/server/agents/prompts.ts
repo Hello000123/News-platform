@@ -310,9 +310,50 @@ function parseChineseInteger(raw: string) {
 }
 
 const numericSuffixPattern =
-  /^\s*(?:(百分比|美元|美金|港元|港幣|人民幣|個座位|座位|%|％|名|位|人|部|款|個|台|套|家|間|宗|項|件|輛|架|枚|次|倍|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|devices?|units?|models?|products?|versions?|reports?|cases?|seats?|years?|months?|days?|hours?|minutes?|seconds?|times?|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|km|cm|mm|kW|W)\b)/iu;
+  /^\s*(?:[-‐‑‒–—]\s*)?(?:(百分比|美元|美金|港元|港幣|人民幣|個座位|座位|%|％|名|位|人|部|款|個|台|套|家|間|宗|項|件|輛|架|枚|次|倍|×|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|devices?|units?|models?|products?|versions?|reports?|cases?|seats?|years?|months?|days?|hours?|minutes?|seconds?|times?|inch(?:es)?|x|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|km|cm|mm|kW|W)\b)/iu;
 const numericCurrencyPrefixPattern =
   /(HK\$|US\$|USD|HKD|CNY|RMB|港幣|港元|美元|人民幣|\$)\s*$/iu;
+
+const englishMonthTokenPattern =
+  "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec";
+const englishMonthPattern = new RegExp(
+  String.raw`(?<!\p{L})(${englishMonthTokenPattern})\.?(?=$|[^\p{L}])`,
+  "giu",
+);
+const englishMonthBeforeNumberPattern = new RegExp(
+  String.raw`(?:${englishMonthTokenPattern})\.?\s*$`,
+  "iu",
+);
+const englishMonthAfterNumberPattern = new RegExp(
+  String.raw`^\s*(?:${englishMonthTokenPattern})\.?(?=$|[^\p{L}])`,
+  "iu",
+);
+const englishMonthNumbers: Readonly<Record<string, string>> = {
+  january: "1",
+  jan: "1",
+  february: "2",
+  feb: "2",
+  march: "3",
+  mar: "3",
+  april: "4",
+  apr: "4",
+  may: "5",
+  june: "6",
+  jun: "6",
+  july: "7",
+  jul: "7",
+  august: "8",
+  aug: "8",
+  september: "9",
+  sept: "9",
+  sep: "9",
+  october: "10",
+  oct: "10",
+  november: "11",
+  nov: "11",
+  december: "12",
+  dec: "12",
+};
 
 function normalizeNumericUnit(raw: string) {
   const unit = raw.normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/gu, "");
@@ -326,6 +367,8 @@ function normalizeNumericUnit(raw: string) {
   if (["model", "models", "product", "products", "version", "versions", "款", "個", "項"].includes(unit)) return "count:item";
   if (["report", "reports", "case", "cases", "宗"].includes(unit)) return "count:case";
   if (["seat", "seats", "個座位", "座位", "席"].includes(unit)) return "count:seat";
+  if (["x", "×", "倍"].includes(unit)) return "ratio:multiplier";
+  if (["inch", "inches", "英寸", "吋"].includes(unit)) return "length:inch";
   if (["time", "times", "次"].includes(unit)) return "count:occurrence";
   if (["家", "間"].includes(unit)) return `count:${unit}`;
   if (["year", "years", "年"].includes(unit)) return "time:year";
@@ -338,12 +381,37 @@ function normalizeNumericUnit(raw: string) {
 }
 
 function numericUnitAt(text: string, start: number, end: number) {
-  const prefix = text.slice(Math.max(0, start - 16), start);
+  const prefix = text.slice(Math.max(0, start - 32), start);
   const prefixUnit = prefix.match(numericCurrencyPrefixPattern)?.[1];
   if (prefixUnit) return normalizeNumericUnit(prefixUnit);
-  const suffixMatch = text.slice(end, end + 28).match(numericSuffixPattern);
+  const suffix = text.slice(end, end + 32);
+  const suffixMatch = suffix.match(numericSuffixPattern);
   const suffixUnit = suffixMatch?.[1] ?? suffixMatch?.[2];
-  return suffixUnit ? normalizeNumericUnit(suffixUnit) : null;
+  if (suffixUnit) return normalizeNumericUnit(suffixUnit);
+
+  const rawValue = text.slice(start, end).replaceAll(",", "");
+  const numericValue = Number(rawValue);
+  if (
+    Number.isInteger(numericValue) &&
+    numericValue >= 1 &&
+    numericValue <= 31 &&
+    (englishMonthBeforeNumberPattern.test(prefix) ||
+      englishMonthAfterNumberPattern.test(suffix))
+  ) {
+    return "time:day";
+  }
+
+  const previousCharacter = text[start - 1] ?? "";
+  const nextCharacter = text[end] ?? "";
+  if (
+    /^(?:18|19|20|21)\d{2}$/u.test(rawValue) &&
+    !/[\p{L}\p{N}]/u.test(previousCharacter) &&
+    !/[\p{L}\p{N}]/u.test(nextCharacter)
+  ) {
+    return "time:year";
+  }
+
+  return null;
 }
 
 function numericUnitsCompatible(left: string, right: string) {
@@ -389,6 +457,15 @@ export function extractNumericFacts(text: string): NumericFact[] {
     if (!unit) continue;
     const value = parseChineseInteger(raw);
     if (value !== null) facts.push({ value: normalizeDecimal(value), unit, raw });
+  }
+
+  for (const match of text.matchAll(englishMonthPattern)) {
+    const raw = match[1];
+    const normalized = raw.toLocaleLowerCase("en");
+    // Lowercase "may" is normally a modal verb, not a calendar month.
+    if (normalized === "may" && raw === normalized) continue;
+    const value = englishMonthNumbers[normalized];
+    if (value) facts.push({ value, unit: "time:month", raw });
   }
 
   return facts.filter(

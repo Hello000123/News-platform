@@ -80,6 +80,58 @@ describe("pipeline relaxed fidelity", () => {
     ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
   });
 
+  it.each([
+    {
+      source:
+        "The console launched in 2013, its successor arrived in 2020, and support is expected through 2027.",
+      title: "遊戲主機支援年期",
+      candidate:
+        "遊戲主機支援年期\n\n報道指主機於2013年推出，後繼型號於2020年面世，支援預計延續至2027年。",
+    },
+    {
+      source:
+        "The 2026 solar eclipse takes place on August 12 and is the first total eclipse since 2024.",
+      title: "日食觀賞指南",
+      candidate:
+        "2026年日食觀賞指南\n\n2026年8月12日將出現日食，這是2024年以來首次日全食。",
+    },
+    {
+      source: "The system offers 2x the memory bandwidth of the comparison system.",
+      title: "記憶體頻寬比較",
+      candidate: "記憶體頻寬比較\n\n新系統的記憶體頻寬是比較系統的2倍。",
+    },
+    {
+      source: "The monitor has a 27-inch panel and a 24-inch custom format mode.",
+      title: "螢幕尺寸說明",
+      candidate: "螢幕尺寸說明\n\n螢幕採用27吋面板，並提供24吋自訂顯示模式。",
+    },
+  ])("accepts supported numeric localization: $title", async ({ source, title, candidate }) => {
+    const result = await runRewriteAgent(
+      snapshot(source, { linkedTitle: title }),
+      null,
+      async () => candidate,
+      relaxedContext,
+    );
+
+    expect(result.finalText).toBe(candidate);
+    expect(result.validation).toEqual({ status: "passed", attempts: 1 });
+  });
+
+  it("does not turn a model-number fragment into an inch measurement", async () => {
+    const badCandidate =
+      "螢幕尺寸說明\n\nGigabyte GO27Q24A 採用27吋面板，並提供24吋原生顯示。";
+    await expect(
+      runRewriteAgent(
+        snapshot("The Gigabyte GO27Q24A monitor has a 27-inch panel.", {
+          linkedTitle: "螢幕尺寸說明",
+        }),
+        null,
+        async () => badCandidate,
+        relaxedContext,
+      ),
+    ).rejects.toMatchObject({ status: 422, code: "UNTRACEABLE_REWRITE_NUMBER" });
+  });
+
   it("rejects source numbers that are swapped onto different units", async () => {
     const badCandidate =
       "公司公布新裝置\n\n公司表示新裝置售價為 128 美元，首批供應 40 部。";

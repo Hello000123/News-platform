@@ -446,6 +446,45 @@ describe("agent prompts", () => {
     ).toEqual(["王繹嘉", "陳凱然", "馬端行", "劉彥彤", "程熹", "羅苡庭"]);
   });
 
+  it("normalizes English dates, multipliers, and hyphenated inch measurements", () => {
+    expect(
+      extractNumericFacts(
+        "The console launched in 2013, its successor arrived in 2020, and support is expected through 2027.",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "2013", unit: "time:year", raw: "2013" },
+        { value: "2020", unit: "time:year", raw: "2020" },
+        { value: "2027", unit: "time:year", raw: "2027" },
+      ]),
+    );
+    expect(
+      extractNumericFacts(
+        "The 2026 eclipse occurs on August 12 and is the first total eclipse since 2024.",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "2026", unit: "time:year", raw: "2026" },
+        { value: "8", unit: "time:month", raw: "August" },
+        { value: "12", unit: "time:day", raw: "12" },
+        { value: "2024", unit: "time:year", raw: "2024" },
+      ]),
+    );
+    expect(extractNumericFacts("The system offers 2x the memory bandwidth.")).toContainEqual({
+      value: "2",
+      unit: "ratio:multiplier",
+      raw: "2",
+    });
+    expect(
+      extractNumericFacts("A 27-inch panel can switch to a 24-inch custom format."),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "27", unit: "length:inch", raw: "27" },
+        { value: "24", unit: "length:inch", raw: "24" },
+      ]),
+    );
+  });
+
   it("detects and enforces the primary input language automatically", () => {
     const traditionalDraft =
       "香港初創公司於7月16日表示，已在數碼港完成首輪測試，項目主管稱開始日期尚未確定。";
