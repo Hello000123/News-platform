@@ -2,7 +2,11 @@ import { rewriteWithFeedback } from "@/lib/server/agents/workflow";
 import { requireApiSession } from "@/lib/server/auth/guards";
 import { recordAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
-import { rewriteRequestSchema, type RewriteApiResponse } from "@/lib/shared/contracts";
+import {
+  DEFAULT_REWRITE_OUTPUT_LANGUAGE,
+  rewriteRequestSchema,
+  type RewriteApiResponse,
+} from "@/lib/shared/contracts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +23,7 @@ export async function POST(request: Request) {
       {
         history: input.history,
         refinement: input.refinement,
-        outputLanguage: input.outputLanguage,
+        outputLanguage: input.outputLanguage ?? DEFAULT_REWRITE_OUTPUT_LANGUAGE,
       },
       input.model,
     );

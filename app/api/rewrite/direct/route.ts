@@ -3,6 +3,7 @@ import { requireApiSession } from "@/lib/server/auth/guards";
 import { recordAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
 import {
+  DEFAULT_REWRITE_OUTPUT_LANGUAGE,
   editorialInputSchema,
   type DirectRewriteApiResponse,
 } from "@/lib/shared/contracts";
@@ -21,7 +22,11 @@ export async function POST(request: Request) {
       source,
       null,
       undefined,
-      undefined,
+      {
+        history: [],
+        refinement: { lengthOption: null, instruction: "" },
+        outputLanguage: DEFAULT_REWRITE_OUTPUT_LANGUAGE,
+      },
       input.model,
     );
     const result: DirectRewriteApiResponse = { ...rewrite, source };

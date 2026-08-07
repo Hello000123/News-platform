@@ -12,6 +12,7 @@ import {
 import { loadArticleContent } from "@/lib/server/feeds/scraper";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
 import {
+  DEFAULT_REWRITE_OUTPUT_LANGUAGE,
   rewriteContextSchema,
   sourceSnapshotSchema,
   type RewriteContext,
@@ -135,7 +136,7 @@ export async function POST(request: Request, context: RouteContext) {
           .filter(Boolean)
           .join("\n\n"),
       },
-      outputLanguage: input.outputLanguage ?? "source",
+      outputLanguage: input.outputLanguage ?? DEFAULT_REWRITE_OUTPUT_LANGUAGE,
       // The top-five batch produces summary briefs for editorial review, so
       // verbatim-fidelity checks apply to the source lead only. Anti-fabrication
       // checks (invented numbers or quotations) remain strict against the full
