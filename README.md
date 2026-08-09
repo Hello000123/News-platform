@@ -205,6 +205,18 @@ ownership. Summary generation uses the existing `AI_MODEL` and matching
 server-only provider configuration, so it introduces no new environment
 variables.
 
+The Admin Panel also exposes **Client Overview** as its own top-level tab. Its
+initial widget groups every account whose role is `client` by the separately
+stored `company_type` field from the latest saved company summary. Aggregation
+and percentage calculation happen in D1-backed server code; the browser receives
+only company-type labels, counts, percentages, and totals. Matching labels are
+grouped case-insensitively. Missing values and recognized placeholders such as
+`Unknown`, `Unclassified`, or `N/A` are combined under **Unknown /
+Unclassified**. Active, setup-pending, and disabled client accounts all remain
+in the denominator so the chart and accessible table describe the entire
+retained client base. The overview layout is widget-based so later aggregate
+views can be added without changing the top-level navigation.
+
 Apply the latest D1 migration before using the publishing workflow:
 
     npm run db:migrate:local

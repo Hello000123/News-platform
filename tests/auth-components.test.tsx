@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   updateEmployeeAgentUsageThresholds: vi.fn(),
   listEmployeeClientSummaryTargets: vi.fn(),
   generateEmployeeClientSummary: vi.fn(),
+  getEmployeeClientOverview: vi.fn(),
   removeClientAccount: vi.fn(),
   submitAccountRequest: vi.fn(),
   decideAccountRequest: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("@/lib/client/auth-api", () => ({
   updateEmployeeAgentUsageThresholds: mocks.updateEmployeeAgentUsageThresholds,
   listEmployeeClientSummaryTargets: mocks.listEmployeeClientSummaryTargets,
   generateEmployeeClientSummary: mocks.generateEmployeeClientSummary,
+  getEmployeeClientOverview: mocks.getEmployeeClientOverview,
   removeClientAccount: mocks.removeClientAccount,
   decideAccountRequest: mocks.decideAccountRequest,
   resendSetupEmail: mocks.resendSetupEmail,
@@ -62,6 +64,24 @@ const thresholdRules = [
 }));
 
 beforeEach(() => {
+  mocks.getEmployeeClientOverview.mockResolvedValue({
+    overview: {
+      generatedAt: 1_800_000_000,
+      companyTypeDistribution: {
+        totalClients: 1,
+        classifiedClients: 0,
+        unclassifiedClients: 1,
+        items: [
+          {
+            companyType: "Unknown / Unclassified",
+            clientCount: 1,
+            percentage: 100,
+            isUnclassified: true,
+          },
+        ],
+      },
+    },
+  });
   mocks.listEmployeeClientSummaryTargets.mockResolvedValue({ clients: [] });
   mocks.generateEmployeeClientSummary.mockResolvedValue({ summary: {} });
   mocks.getEmployeeAgentUsageThresholds.mockResolvedValue({
@@ -320,6 +340,22 @@ describe("account request and employee summary UI", () => {
     expect(
       await screen.findByText(/Email preview mode recorded the notification/iu),
     ).toBeTruthy();
+  });
+
+  it("shows Client Overview as an independent top-level admin tab", async () => {
+    render(<ApprovalDashboard initialTab="client-overview" />);
+
+    const overviewTab = screen.getByRole("tab", { name: "Client Overview" });
+    expect(overviewTab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      await screen.findByRole("heading", { name: "Distribution by company type" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("table", {
+        name: "Accessible client distribution by company type",
+      }),
+    ).toBeTruthy();
+    expect(mocks.getEmployeeClientOverview).toHaveBeenCalledTimes(1);
   });
 
   it("reloads backend-aggregated client usage for the selected period", async () => {

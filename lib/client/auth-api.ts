@@ -21,6 +21,7 @@ import type {
   ClientDetailView,
   ClientSummaryTargetView,
 } from "@/lib/shared/client-summaries";
+import type { ClientOverviewView } from "@/lib/shared/client-overview";
 import { derivePasswordProof } from "@/lib/client/password-proof";
 import {
   DEFAULT_AGENT_USAGE_PERIOD,
@@ -291,6 +292,13 @@ export function generateEmployeeClientSummary(id: string) {
 export function listEmployeeClientSummaryTargets() {
   return requestJson<{ clients: ClientSummaryTargetView[] }>(
     "/api/employee/client-summaries/targets",
+    { method: "GET" },
+  );
+}
+
+export function getEmployeeClientOverview() {
+  return requestJson<{ overview: ClientOverviewView }>(
+    "/api/employee/client-overview",
     { method: "GET" },
   );
 }

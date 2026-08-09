@@ -17,7 +17,10 @@ export default async function EmployeeApprovalPage({ searchParams }: PageProps) 
   const session = await requirePageSession("/employee", ["employee"]);
   const query = await searchParams;
   const initialTab =
-    query.tab === "clients" || query.tab === "employees" || query.tab === "feeds"
+    query.tab === "clients" ||
+    query.tab === "client-overview" ||
+    query.tab === "employees" ||
+    query.tab === "feeds"
       ? query.tab
       : "approval";
   return (

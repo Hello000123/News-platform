@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ClientRemovalDialog } from "@/components/employee/client-removal-dialog";
+import { ClientOverview } from "@/components/employee/client-overview";
 import { FeedManagement } from "@/components/employee/feed-management";
 import {
   AuthRequestError,
@@ -29,7 +30,12 @@ import {
   type AgentUsagePeriod,
 } from "@/lib/shared/agent-usage";
 
-type AdminTab = "approval" | "clients" | "employees" | "feeds";
+type AdminTab =
+  | "approval"
+  | "clients"
+  | "client-overview"
+  | "employees"
+  | "feeds";
 type Filter = AccountRequestStatus | "all";
 
 interface SummaryBatchProgress {
@@ -44,6 +50,7 @@ interface SummaryBatchProgress {
 const ADMIN_TABS: Array<{ value: AdminTab; label: string }> = [
   { value: "approval", label: "Account Approval" },
   { value: "clients", label: "Client Accounts" },
+  { value: "client-overview", label: "Client Overview" },
   { value: "employees", label: "Employee Accounts" },
   { value: "feeds", label: "News Feeds" },
 ];
@@ -78,6 +85,7 @@ function formattedSuspensionDate(timestamp: number) {
 function loadingLabel(tab: AdminTab) {
   if (tab === "approval") return "Loading account requests";
   if (tab === "clients") return "Loading client accounts";
+  if (tab === "client-overview") return "Loading client overview";
   return "Loading employee accounts";
 }
 
@@ -104,7 +112,9 @@ export function ApprovalDashboard({
   const [summaryBatch, setSummaryBatch] = useState<SummaryBatchProgress | null>(
     null,
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    initialTab !== "feeds" && initialTab !== "client-overview",
+  );
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState<{
     kind: "success" | "warning";
@@ -117,7 +127,7 @@ export function ApprovalDashboard({
   useEffect(() => {
     let cancelled = false;
 
-    if (activeTab === "feeds") {
+    if (activeTab === "feeds" || activeTab === "client-overview") {
       return () => {
         cancelled = true;
       };
@@ -182,7 +192,11 @@ export function ApprovalDashboard({
     setRequests([]);
     setUsagePeriodView(null);
     setThresholdError("");
-    if (tab !== "feeds") setLoading(true);
+    if (tab !== "feeds" && tab !== "client-overview") {
+      setLoading(true);
+    } else {
+      setLoading(false);
+    }
     setActiveTab(tab);
   }
 
@@ -325,25 +339,27 @@ export function ApprovalDashboard({
 
   return (
     <section className="employee-dashboard" aria-busy={loading}>
-      <section className="account-summary" aria-labelledby="account-summary-heading">
-        <div className="account-summary-heading">
-          <div>
-            <div className="section-kicker">Accounts</div>
-            <h2 id="account-summary-heading">Account summary</h2>
+      {activeTab !== "client-overview" ? (
+        <section className="account-summary" aria-labelledby="account-summary-heading">
+          <div className="account-summary-heading">
+            <div>
+              <div className="section-kicker">Accounts</div>
+              <h2 id="account-summary-heading">Account summary</h2>
+            </div>
+            <span>Current active role totals</span>
           </div>
-          <span>Current active role totals</span>
-        </div>
-        <div className="account-summary-grid">
-          <article className="account-summary-card">
-            <span>Employee accounts</span>
-            <strong>{summary?.employeeAccounts ?? "—"}</strong>
-          </article>
-          <article className="account-summary-card">
-            <span>Client accounts</span>
-            <strong>{summary?.clientAccounts ?? "—"}</strong>
-          </article>
-        </div>
-      </section>
+          <div className="account-summary-grid">
+            <article className="account-summary-card">
+              <span>Employee accounts</span>
+              <strong>{summary?.employeeAccounts ?? "—"}</strong>
+            </article>
+            <article className="account-summary-card">
+              <span>Client accounts</span>
+              <strong>{summary?.clientAccounts ?? "—"}</strong>
+            </article>
+          </div>
+        </section>
+      ) : null}
 
       <div className="admin-tabs" role="tablist" aria-label="Admin Panel sections">
         {ADMIN_TABS.map((tab) => (
@@ -375,7 +391,7 @@ export function ApprovalDashboard({
         </div>
       ) : null}
 
-      {loading && activeTab !== "feeds" ? (
+      {loading && activeTab !== "feeds" && activeTab !== "client-overview" ? (
         <div className="loading-panel" role="status">
           <span className="spinner spinner-dark" aria-hidden="true" />
           <div>
@@ -471,7 +487,19 @@ export function ApprovalDashboard({
         </section>
       ) : null}
 
-      {activeTab !== "approval" && activeTab !== "feeds" ? (
+      {activeTab === "client-overview" ? (
+        <section
+          id="admin-panel-client-overview"
+          role="tabpanel"
+          aria-labelledby="admin-tab-client-overview"
+        >
+          <ClientOverview />
+        </section>
+      ) : null}
+
+      {activeTab !== "approval" &&
+      activeTab !== "feeds" &&
+      activeTab !== "client-overview" ? (
         <section
           id={`admin-panel-${activeTab}`}
           className="admin-account-panel"
