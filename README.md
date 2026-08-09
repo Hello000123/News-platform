@@ -158,7 +158,16 @@ duplicate. Imported source
 feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
 fetch their placeholder URLs.
 
-Apply the latest D1 migration before using the category and uploaded-photo workflow:
+Employees can open any live article and choose **Edit presentation** to enter the
+restricted presentation editor. Draft and published formatting are stored
+separately. The editor supports allowlisted font family and font size changes on
+selected text plus bounded, aspect-ratio-preserving hero-image scaling. Article
+text, block order, layout, navigation, margins, header, and footer are not part of
+the saved presentation model. The server validates every save against the exact
+article text; **Save Changes** keeps a private draft and **Publish** promotes the
+validated draft through the existing `approved` publication state.
+
+Apply the latest D1 migration before using the publishing workflow:
 
     npm run db:migrate:local
 

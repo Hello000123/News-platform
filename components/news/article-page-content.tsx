@@ -3,12 +3,22 @@ import Link from "next/link";
 import {
   articleBodyParagraphs,
   articleDisplayTitle,
+  articlePresentationSourceBlocks,
   articleTimestamp,
   extractArticleKeyPoints,
   extractArticleSummary,
   placeholderImageUrl,
 } from "@/components/news/article-content";
+import {
+  ArticlePresentationEditorProvider,
+  ArticlePresentationImage,
+  ArticlePresentationText,
+} from "@/components/news/article-presentation-editor";
 import { EditorialPublicFooter, EditorialPublicHeader } from "@/components/news/editorial-public-chrome";
+import {
+  createDefaultArticlePresentation,
+  type ArticlePresentation,
+} from "@/lib/shared/article-presentation";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 import { newsCategoryDefinition } from "@/lib/shared/news-categories";
 
@@ -37,9 +47,17 @@ function articleHref(article: PipelineArticleView) {
 export function NewsArticlePageContent({
   article,
   related,
+  presentationDraft,
+  publishedPresentation,
+  canEditPresentation = false,
+  editPresentation = false,
 }: {
   article: PipelineArticleView;
   related: readonly PipelineArticleView[];
+  presentationDraft?: ArticlePresentation;
+  publishedPresentation?: ArticlePresentation;
+  canEditPresentation?: boolean;
+  editPresentation?: boolean;
 }) {
   const body = articleBodyParagraphs(article);
   const title = articleDisplayTitle(article);
@@ -56,6 +74,13 @@ export function NewsArticlePageContent({
       ...related.map(({ feedName }) => feedName),
     ]),
   ];
+  const defaultPresentation = createDefaultArticlePresentation(
+    article.updatedAt,
+    articlePresentationSourceBlocks(article),
+  );
+  const effectivePresentationDraft = presentationDraft ?? defaultPresentation;
+  const effectivePublishedPresentation =
+    publishedPresentation ?? defaultPresentation;
 
   return (
     <div className="news-v1-article-page">
@@ -66,7 +91,20 @@ export function NewsArticlePageContent({
       />
 
       <main className="news-v1-article-main" id="news-v1-main">
-        <article className="news-v1-article" aria-labelledby="article-title">
+        <ArticlePresentationEditorProvider
+          articleId={article.id}
+          editMode={editPresentation}
+          initialDraft={effectivePresentationDraft}
+          initialPublished={effectivePublishedPresentation}
+        >
+          {canEditPresentation && !editPresentation ? (
+            <div className="news-presentation-entry news-v1-page-shell">
+              <Link href={`/news/${encodeURIComponent(article.id)}?edit=1`}>
+                Edit presentation
+              </Link>
+            </div>
+          ) : null}
+          <article className="news-v1-article" aria-labelledby="article-title">
           <header className="news-v1-article-heading news-v1-page-shell">
             <nav className="news-v1-article-breadcrumb" aria-label="文章導覽">
               <Link href="/">← 所有已核准報道</Link>
@@ -80,8 +118,14 @@ export function NewsArticlePageContent({
             <p className="news-v1-article-kicker">
               {category?.label ?? article.feedName}・已核准報道
             </p>
-            <h1 id="article-title">{title}</h1>
-            {deck ? <p className="news-v1-article-deck">{deck}</p> : null}
+            <h1 id="article-title">
+              <ArticlePresentationText blockId="title" text={title} />
+            </h1>
+            {deck ? (
+              <p className="news-v1-article-deck">
+                <ArticlePresentationText blockId="deck" text={deck} />
+              </p>
+            ) : null}
 
             <dl className="news-v1-article-metadata">
               <div>
@@ -108,16 +152,12 @@ export function NewsArticlePageContent({
           </header>
 
           <figure className="news-v1-article-hero">
-            {/* Arbitrary editor-supplied hosts cannot be safely enumerated in Next image remotePatterns. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={article.imageUrl ?? placeholderImageUrl(article.id, 1200, 675)}
-              width={1200}
-              height={675}
+            <div className="news-v1-article-hero-frame">
+              <ArticlePresentationImage
+                src={article.imageUrl ?? placeholderImageUrl(article.id, 1200, 675)}
               alt={`${title} 的新聞圖片`}
-              loading="eager"
-              fetchPriority="high"
-            />
+              />
+            </div>
             <figcaption className="news-v1-page-shell">
               <span>PressReady / Approved report</span>
               <span>{article.imageUrl ? "精選圖片" : "示意圖片"}</span>
@@ -128,7 +168,10 @@ export function NewsArticlePageContent({
             <div className="news-v1-article-reading">
               {body.map((paragraph, index) => (
                 <p className={index === 0 ? "news-v1-article-lede" : undefined} key={`${index}-${paragraph}`}>
-                  {paragraph}
+                  <ArticlePresentationText
+                    blockId={`body:${index}`}
+                    text={paragraph}
+                  />
                 </p>
               ))}
             </div>
@@ -169,13 +212,14 @@ export function NewsArticlePageContent({
               </aside>
             ) : null}
           </div>
-        </article>
+          </article>
 
         <nav className="news-v1-page-shell news-v1-article-return" aria-label="文章導覽">
           <Link href={category?.href ?? "/"}>
             返回{category?.label ?? "所有已核准報道"} <span aria-hidden="true">→</span>
           </Link>
-        </nav>
+          </nav>
+        </ArticlePresentationEditorProvider>
       </main>
       <EditorialPublicFooter />
     </div>

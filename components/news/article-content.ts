@@ -1,4 +1,5 @@
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
+import type { ArticlePresentationSourceBlock } from "@/lib/shared/article-presentation";
 
 const SUMMARY_MAX_LENGTH = 240;
 const KEY_POINT_PREFERRED_LENGTH = 44;
@@ -85,6 +86,20 @@ export function extractArticleKeyPoints(article: PipelineArticleView) {
 
 export function articleTimestamp(article: PipelineArticleView) {
   return article.publishedAt ?? article.pubDate ?? article.createdAt;
+}
+
+export function articlePresentationSourceBlocks(
+  article: PipelineArticleView,
+): ArticlePresentationSourceBlock[] {
+  const deck = extractArticleSummary(article);
+  return [
+    { id: "title", text: articleDisplayTitle(article) },
+    ...(deck ? [{ id: "deck", text: deck }] : []),
+    ...articleBodyParagraphs(article).map((text, index) => ({
+      id: `body:${index}`,
+      text,
+    })),
+  ];
 }
 
 export function placeholderImageUrl(
