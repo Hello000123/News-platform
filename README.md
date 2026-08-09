@@ -140,6 +140,14 @@ declared MIME type against the extension and actual content. Only sanitized,
 extracted text is added to the draft; provider keys are never included in
 browser source, browser requests, API error bodies, or application logs.
 
+The Rewrite–Review interface supports English and Traditional Chinese for
+Hong Kong (`zh-HK`). English is the default. The language button at the upper
+right stores the selected interface locale in browser `localStorage` under
+`pressready_rewrite_locale`, so it persists across refreshes and later visits.
+Translations are maintained in `lib/client/rewrite-i18n.tsx`; switching the
+interface never translates or changes draft text, extracted source material,
+review evidence, or generated articles.
+
 ## Copied news scraper and publishing workflow
 
 The 26-source news scraper is included in `execution/`, with its source definitions in

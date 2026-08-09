@@ -14,6 +14,11 @@ import {
 import { AuthRequestError } from "@/lib/client/auth-api";
 import { requestFileExtraction } from "@/lib/client/file-api";
 import {
+  type RewriteLocale,
+  type RewriteTranslator,
+  useRewriteI18n,
+} from "@/lib/client/rewrite-i18n";
+import {
   clearRewriteSession,
   loadRewriteSession,
   saveRewriteSession,
@@ -31,8 +36,6 @@ import {
 import {
   addUploadsWithinLimit,
   FILE_UPLOAD_ACCEPT,
-  MAX_UPLOAD_MEGABYTES,
-  SUPPORTED_UPLOAD_HELP,
   totalUploadBytes,
   validateUploadMetadata,
 } from "@/lib/shared/file-upload";
@@ -96,36 +99,105 @@ function countWords(text: string) {
   return normalized ? normalized.split(/\s+/u).length : 0;
 }
 
-function formattedUploadSize(bytes: number) {
-  if (bytes < 1024) return `${bytes.toLocaleString("en-US")} B`;
+function formattedUploadSize(bytes: number, locale: RewriteLocale) {
+  const numberLocale = locale === "zh-HK" ? "zh-HK" : "en-US";
+  if (bytes < 1024) return `${bytes.toLocaleString(numberLocale)} B`;
   if (bytes >= 1024 * 1024) {
-    return `${(bytes / 1024 / 1024).toLocaleString("en-US", {
+    return `${(bytes / 1024 / 1024).toLocaleString(numberLocale, {
       maximumFractionDigits: 2,
     })} MB`;
   }
-  return `${(bytes / 1024).toLocaleString("en-US", {
+  return `${(bytes / 1024).toLocaleString(numberLocale, {
     maximumFractionDigits: 1,
   })} KB`;
 }
 
-function messageForError(error: unknown) {
+function messageForError(
+  error: unknown,
+  locale: RewriteLocale,
+  t: RewriteTranslator,
+) {
   if (error instanceof ApiRequestError) {
+    if (locale === "zh-HK") {
+      if (error.code === "VALIDATION_ERROR") return t("validationError");
+      if (error.code === "INVALID_SOURCE_URL") return t("invalidSourceUrl");
+      if (error.code === "NON_PUBLIC_SOURCE") return t("nonPublicSource");
+      if (["SOURCE_DNS_FAILED", "SOURCE_FETCH_FAILED", "SOURCE_REDIRECT_LIMIT"].includes(error.code)) {
+        return t("sourceFetchFailed");
+      }
+      if (error.code === "SOURCE_FETCH_TIMEOUT") return t("sourceFetchTimeout");
+      if (error.code === "SOURCE_TOO_LARGE") return t("sourceTooLarge");
+      if (error.code === "UNSUPPORTED_SOURCE_TYPE") return t("unsupportedSourceType");
+      if (error.code === "EMPTY_SOURCE_CONTENT") return t("emptySource");
+      if (error.code === "AUTH_REQUIRED") return t("sessionExpired");
+      if (error.code === "FORBIDDEN") return t("forbidden");
+      if (error.code.includes("TIMEOUT")) return t("providerTimeout");
+      if (
+        error.code.startsWith("XAI_") ||
+        error.code.startsWith("DEEPSEEK_") ||
+        ["NETWORK_ERROR", "MALFORMED_AI_RESPONSE", "EMPTY_AI_RESPONSE"].includes(error.code)
+      ) {
+        return t("providerFailed");
+      }
+      if (error.code.includes("REWRITE") || error.code === "INVALID_SERVER_RESPONSE") {
+        return t("rewriteValidationFailed");
+      }
+      return t("requestFailedGeneric");
+    }
     const details = error.code === "VALIDATION_ERROR"
       ? error.details?.messages?.join(" ")
       : "";
     return details || error.message;
   }
-  return "Something went wrong while processing the draft. Please try again.";
+  return t("genericProcessingError");
 }
 
-function formatElapsed(seconds: number) {
+function formatElapsed(seconds: number, t: RewriteTranslator) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return minutes ? `${minutes}m ${String(remainder).padStart(2, "0")}s` : `${seconds}s`;
+  return minutes
+    ? t("elapsedMinutes", {
+        minutes,
+        seconds: String(remainder).padStart(2, "0"),
+      })
+    : t("elapsedSeconds", { seconds });
 }
 
-function stageLabel(stage: NonNullable<ApiRequestError["details"]>["stage"]) {
-  return stage === "review_request" ? "Review Agent request" : "Rewrite Agent request";
+function stageLabel(
+  stage: NonNullable<ApiRequestError["details"]>["stage"],
+  t: RewriteTranslator,
+) {
+  return stage === "review_request" ? t("reviewAgentRequest") : t("rewriteAgentRequest");
+}
+
+function localizeUploadSelectionError(error: string, t: RewriteTranslator) {
+  const separator = error.indexOf(": ");
+  const prefix = separator >= 0 ? error.slice(0, separator + 2) : "";
+  const detail = separator >= 0 ? error.slice(separator + 2) : error;
+  if (detail.includes("combined size")) return prefix + t("uploadCombinedLimit");
+  if (detail.startsWith("Select no more than")) return prefix + t("uploadFileCount");
+  if (detail.includes("larger than")) return prefix + t("uploadSingleTooLarge");
+  if (detail.includes("is empty")) return prefix + t("uploadEmpty");
+  if (detail.startsWith("Unsupported file format")) return prefix + t("uploadUnsupported");
+  if (detail.includes("does not match its extension")) return prefix + t("uploadTypeMismatch");
+  return prefix + t("uploadInvalid");
+}
+
+function uploadRequestMessage(error: AuthRequestError, locale: RewriteLocale, t: RewriteTranslator) {
+  if (locale === "en") return error.message;
+  if (["FILE_TOO_LARGE", "UPLOAD_TOTAL_TOO_LARGE"].includes(error.code)) {
+    return t("uploadCombinedLimit");
+  }
+  if (error.code === "FILE_EMPTY") return t("uploadEmpty");
+  if (error.code === "FILE_TYPE_MISMATCH") return t("uploadTypeMismatch");
+  if (error.code === "FILE_PASSWORD_PROTECTED") return t("uploadPasswordProtected");
+  if (error.code === "FILE_PROCESSING_TIMEOUT") return t("uploadTimeout");
+  if (["FILE_UNSAFE", "FILE_CORRUPTED", "FILE_TOO_COMPLEX", "FILE_UNREADABLE"].includes(error.code)) {
+    return t("uploadUnsafe");
+  }
+  if (error.code === "AUTH_REQUIRED") return t("sessionExpired");
+  if (error.code === "FORBIDDEN") return t("forbidden");
+  return t("uploadInvalid");
 }
 
 function inputSignature(input: EditorialInput) {
@@ -140,6 +212,7 @@ export function PressReleaseWorkspace({
   initialPassScore,
   initialModel = DEFAULT_SELECTABLE_MODEL,
 }: PressReleaseWorkspaceProps) {
+  const { locale, t } = useRewriteI18n();
   const [draft, setDraft] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [selectedModel, setSelectedModel] = useState<SelectableModelId>(initialModel);
@@ -372,13 +445,15 @@ export function PressReleaseWorkspace({
         id: `draft-file-${++attachmentSequenceRef.current}`,
         file,
         name: file.name,
-        type: "error" in validation ? file.type || "Unknown type" : validation.formatLabel,
+        type: "error" in validation ? file.type || t("unknownType") : validation.formatLabel,
         size: file.size,
         status: "selected",
       };
     });
     setDraftAttachments((current) => [...current, ...additions]);
-    setDraftAttachmentError(result.errors.join(" "));
+    setDraftAttachmentError(
+      result.errors.map((error) => localizeUploadSelectionError(error, t)).join(" "),
+    );
     setInputError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -438,8 +513,8 @@ export function PressReleaseWorkspace({
       if (uploadSequenceRef.current !== requestId) return;
       const message =
         error instanceof AuthRequestError
-          ? error.message
-          : "The files could not be processed. Try again or remove the affected file.";
+          ? uploadRequestMessage(error, locale, t)
+          : t("filesProcessError");
       setDraftAttachmentError(message);
       setDraftAttachments((current) =>
         current.map((attachment) =>
@@ -461,9 +536,7 @@ export function PressReleaseWorkspace({
         ? `${draft.trimEnd()}\n\n${pendingExtractedText}`
         : pendingExtractedText;
     if (nextDraft.length > MAX_DRAFT_CHARS) {
-      setDraftAttachmentError(
-        "Appending these files would exceed the 50,000-character draft limit. Replace the draft or shorten the existing text first.",
-      );
+      setDraftAttachmentError(t("appendLimitError"));
       return;
     }
     draftRef.current = nextDraft;
@@ -483,10 +556,10 @@ export function PressReleaseWorkspace({
 
   function validateInput(input: EditorialInput) {
     if (!input.draft.trim() && !input.sourceUrl.trim()) {
-      return "Enter draft text or a source URL before requesting a review.";
+      return t("inputRequired");
     }
     if (input.draft.length > MAX_DRAFT_CHARS) {
-      return "Drafts are limited to 50,000 characters.";
+      return t("draftLimitError");
     }
     return "";
   }
@@ -532,7 +605,7 @@ export function PressReleaseWorkspace({
     } catch (error) {
       if (activeRequestRef.current !== requestId) return;
       showRequestError({
-        message: messageForError(error),
+        message: messageForError(error, locale, t),
         retryable: error instanceof ApiRequestError
           ? error.details?.retryable ?? error.code !== "VALIDATION_ERROR"
           : true,
@@ -612,7 +685,7 @@ export function PressReleaseWorkspace({
       } else {
         setRewriteState({ status: "idle" });
         showRequestError({
-          message: messageForError(error),
+          message: messageForError(error, locale, t),
           retryable: error instanceof ApiRequestError
             ? error.details?.retryable ?? error.code !== "VALIDATION_ERROR"
             : true,
@@ -632,8 +705,7 @@ export function PressReleaseWorkspace({
     if (inFlightRef.current || !reviewedSource || reviewIsStale) return;
     if (rewriteHistory.length >= MAX_REWRITE_HISTORY_ENTRIES) {
       showRequestError({
-        message:
-          `This article session has reached its ${MAX_REWRITE_HISTORY_ENTRIES}-rewrite context limit. Start a new draft to begin a fresh session.`,
+        message: t("historyLimitError", { count: MAX_REWRITE_HISTORY_ENTRIES }),
         retryable: false,
         context: "rewrite",
       });
@@ -696,7 +768,7 @@ export function PressReleaseWorkspace({
       } else {
         setRewriteState({ status: "idle" });
         showRequestError({
-          message: messageForError(error),
+          message: messageForError(error, locale, t),
           retryable: error instanceof ApiRequestError ? error.details?.retryable !== false : true,
           context: "rewrite",
           diagnostics: error instanceof ApiRequestError ? error.details : undefined,
@@ -740,7 +812,7 @@ export function PressReleaseWorkspace({
         }
       }
       showRequestError({
-        message: "The browser could not copy the output. Select the text and copy it manually.",
+        message: t("copyError"),
         retryable: false,
         context: "copy",
       });
@@ -763,12 +835,12 @@ export function PressReleaseWorkspace({
   }
 
   const loadingMessage = processing === "reviewing"
-    ? "Scoring the submitted copy and preparing calibrated review feedback."
+    ? t("reviewLoading")
     : processing === "rewriting"
-      ? "Creating and validating the latest requested rewrite."
+      ? t("rewriteLoading")
       : "";
   const longReasoningMessage = elapsedSeconds >= 30
-    ? ` ${selectedModelDetails.label} is still working at high reasoning effort; complex requests can take several minutes.`
+    ? t("longReasoning", { model: selectedModelDetails.label })
     : "";
 
   return (
@@ -776,28 +848,28 @@ export function PressReleaseWorkspace({
       <form className="card input-card" onSubmit={handleReview} noValidate>
         <div className="section-kicker">
           <span>01</span>
-          Source input
+          {t("sourceInput")}
         </div>
         <div className="section-heading">
           <div>
-            <h2>Add the article or draft</h2>
-            <p>Paste text or add one public article URL.</p>
+            <h2>{t("addArticleOrDraft")}</h2>
+            <p>{t("pasteTextOrUrl")}</p>
           </div>
           <div className="section-heading-tools">
-            <span className="privacy-note">Sent to the selected AI provider only when submitted</span>
+            <span className="privacy-note">{t("privacyNote")}</span>
             <button
               className="model-change-button"
               type="button"
-              aria-label={`Change AI model. Current model: ${selectedModelDetails.label}`}
+              aria-label={t("changeModelAria", { model: selectedModelDetails.label })}
               aria-expanded={modelPickerOpen}
               aria-controls="model-picker"
               onClick={() => setModelPickerOpen((open) => !open)}
               disabled={busy}
             >
-              <span>AI model</span>
+              <span>{t("aiModel")}</span>
               <strong>{selectedModelDetails.label}</strong>
               <span className="model-change-action" aria-hidden="true">
-                Change
+                {t("change")}
               </span>
             </button>
           </div>
@@ -805,10 +877,10 @@ export function PressReleaseWorkspace({
 
         {modelPickerOpen ? (
           <fieldset id="model-picker" className="model-picker" disabled={busy}>
-            <legend>Choose the AI model</legend>
+            <legend>{t("chooseAiModel")}</legend>
             <div className="model-picker-intro">
-              <p>Both options use high reasoning for every review and rewrite.</p>
-              <span>High reasoning</span>
+              <p>{t("highReasoningEvery")}</p>
+              <span>{t("highReasoning")}</span>
             </div>
             <div className="model-option-grid">
               {SELECTABLE_MODELS.map((model) => (
@@ -828,28 +900,30 @@ export function PressReleaseWorkspace({
                   <span className="model-option-copy">
                     <span className="model-option-title">
                       <strong>{model.label}</strong>
-                      {model.recommended ? <span>Recommended</span> : null}
+                      {model.recommended ? <span>{t("recommended")}</span> : null}
                     </span>
-                    <small>{model.description}</small>
+                    <small>
+                      {t(model.id === "deepseek-v4-pro" ? "deepseekDescription" : "grokDescription")}
+                    </small>
                   </span>
                 </label>
               ))}
             </div>
             <div className="model-picker-footer">
-              <p>Changing the model requires a new review before rewriting.</p>
+              <p>{t("changeModelRequiresReview")}</p>
               <button
                 className="button button-secondary"
                 type="button"
                 onClick={() => setModelPickerOpen(false)}
               >
-                Done
+                {t("done")}
               </button>
             </div>
           </fieldset>
         ) : null}
 
         <label className="input-label" htmlFor="draft-input">
-          News draft or article text
+          {t("draftLabel")}
         </label>
         <textarea
           id="draft-input"
@@ -862,7 +936,7 @@ export function PressReleaseWorkspace({
             setDraft(event.target.value);
             markSourceChanged();
           }}
-          placeholder="Paste a report, announcement, or set of news notes…"
+          placeholder={t("draftPlaceholder")}
           aria-describedby="draft-help draft-count draft-error"
           aria-invalid={Boolean(inputError)}
           maxLength={MAX_DRAFT_CHARS}
@@ -870,11 +944,11 @@ export function PressReleaseWorkspace({
         />
 
         <div className="input-meta">
-          <p id="draft-help">The submitted copy is scored separately from external references.</p>
+          <p id="draft-help">{t("draftHelp")}</p>
           <p id="draft-count" className="count">
-            {words.toLocaleString("en-US")} {words === 1 ? "word" : "words"} ·{" "}
-            {draft.length.toLocaleString("en-US")} /{" "}
-            {MAX_DRAFT_CHARS.toLocaleString("en-US")} characters
+            {words.toLocaleString(locale)} {words === 1 ? t("word") : t("words")} ·{" "}
+            {draft.length.toLocaleString(locale)} /{" "}
+            {MAX_DRAFT_CHARS.toLocaleString(locale)} {t("characters")}
           </p>
         </div>
 
@@ -923,17 +997,21 @@ export function PressReleaseWorkspace({
             }}
           />
           <div>
-            <strong>Attach files or drop them here</strong>
-            <p>{SUPPORTED_UPLOAD_HELP}</p>
+            <strong>{t("uploadZoneTitle")}</strong>
+            <p>{t("uploadHelp")}</p>
           </div>
           <label className="button button-secondary file-picker-button" htmlFor="draft-file">
-            Choose files
+            {t("chooseFiles")}
           </label>
         </div>
 
         <div className="draft-upload-summary">
           <p className="attachment-summary" aria-live="polite">
-            {draftAttachments.length.toLocaleString("en-US")} {draftAttachments.length === 1 ? "file" : "files"} selected · Combined size {formattedUploadSize(draftAttachmentTotal)} / {MAX_UPLOAD_MEGABYTES} MB
+            {t("filesSelected", {
+              count: draftAttachments.length.toLocaleString(locale),
+              fileLabel: draftAttachments.length === 1 ? t("file") : t("files"),
+              size: formattedUploadSize(draftAttachmentTotal, locale),
+            })}
           </p>
           {draftFilesToExtract.length ? (
             <button
@@ -942,7 +1020,7 @@ export function PressReleaseWorkspace({
               disabled={busy || draftFileUploading || Boolean(pendingExtractedText)}
               onClick={() => void processDraftFiles()}
             >
-              {draftFileUploading ? "Extracting files…" : "Extract selected files"}
+              {draftFileUploading ? t("extractingFiles") : t("extractSelectedFiles")}
             </button>
           ) : null}
         </div>
@@ -953,7 +1031,7 @@ export function PressReleaseWorkspace({
               <div className="attachment-icon" aria-hidden="true">DOC</div>
               <div className="attachment-details">
                 <strong>{attachment.name}</strong>
-                <span>{attachment.type} · {formattedUploadSize(attachment.size)}</span>
+                <span>{attachment.type} · {formattedUploadSize(attachment.size, locale)}</span>
                 <span
                   className={
                     "attachment-status " +
@@ -965,32 +1043,32 @@ export function PressReleaseWorkspace({
                   {attachment.status === "processing" ? (
                     <>
                       <span className="spinner" aria-hidden="true" />
-                      Extracting readable content
+                      {t("extractingContent")}
                     </>
                   ) : attachment.status === "selected" ? (
-                    "Ready to extract"
+                    t("readyToExtract")
                   ) : attachment.status === "awaiting-choice" ? (
-                    "Content extracted — choose how to add it"
+                    t("contentExtractedChoice")
                   ) : attachment.status === "added" ? (
-                    "Content added to the draft editor"
+                    t("contentAdded")
                   ) : (
                     attachment.error
                   )}
                 </span>
                 {attachment.truncated ? (
                   <span className="attachment-warning">
-                    Extracted content was shortened to the 50,000-character editor limit.
+                    {t("extractedTruncated")}
                   </span>
                 ) : null}
               </div>
               <button
                 className="button button-quiet attachment-remove"
                 type="button"
-                aria-label={`Remove ${attachment.name}`}
+                aria-label={t("removeFileAria", { name: attachment.name })}
                 onClick={() => removeDraftAttachment(attachment.id)}
                 disabled={busy || draftFileUploading}
               >
-                Remove
+                {t("remove")}
               </button>
             </div>
           ))}
@@ -1003,10 +1081,10 @@ export function PressReleaseWorkspace({
         ) : null}
 
         {draftAttachments.some((attachment) => attachment.status === "awaiting-choice") && pendingExtractedText ? (
-          <div className="attachment-choice" role="group" aria-label="Add extracted file content">
+          <div className="attachment-choice" role="group" aria-label={t("addExtractedGroup")}>
             <div>
-              <strong>Keep the current draft?</strong>
-              <p>Append the extracted content, or replace the editor with it.</p>
+              <strong>{t("keepCurrentDraft")}</strong>
+              <p>{t("appendReplaceHelp")}</p>
             </div>
             <div className="attachment-choice-actions">
               <button
@@ -1014,14 +1092,14 @@ export function PressReleaseWorkspace({
                 type="button"
                 onClick={() => applyExtractedContent("append")}
               >
-                Append to draft
+                {t("appendToDraft")}
               </button>
               <button
                 className="button button-quiet"
                 type="button"
                 onClick={() => applyExtractedContent("replace")}
               >
-                Replace draft
+                {t("replaceDraft")}
               </button>
             </div>
           </div>
@@ -1030,7 +1108,7 @@ export function PressReleaseWorkspace({
         <div className="source-options-grid">
           <div>
             <label className="input-label" htmlFor="source-url">
-              Public article URL
+              {t("publicArticleUrl")}
             </label>
             <input
               id="source-url"
@@ -1043,7 +1121,7 @@ export function PressReleaseWorkspace({
               placeholder="https://example.com/article"
               disabled={busy}
             />
-            <p className="field-help">The server retrieves a bounded text snapshot.</p>
+            <p className="field-help">{t("urlHelp")}</p>
           </div>
 
         </div>
@@ -1058,10 +1136,10 @@ export function PressReleaseWorkspace({
               {processing === "reviewing" ? (
                 <>
                   <span className="spinner" aria-hidden="true" />
-                  Reviewing Draft
+                  {t("reviewingDraft")}
                 </>
               ) : (
-                "Review Draft"
+                t("reviewDraft")
               )}
             </button>
             <button
@@ -1073,16 +1151,16 @@ export function PressReleaseWorkspace({
               {processing === "rewriting" && !reviewedSource ? (
                 <>
                   <span className="spinner spinner-dark" aria-hidden="true" />
-                  Rewriting Draft
+                  {t("rewritingDraft")}
                 </>
               ) : (
-                "Rewrite Draft"
+                t("rewriteDraft")
               )}
             </button>
           </div>
           <p>
-            Pass threshold: {initialPassScore}/100 <span aria-hidden="true">·</span>{" "}
-            {selectedModelDetails.label} <span aria-hidden="true">·</span> High reasoning
+            {t("passThreshold")}: {initialPassScore}/100 <span aria-hidden="true">·</span>{" "}
+            {selectedModelDetails.label} <span aria-hidden="true">·</span> {t("highReasoning")}
           </p>
         </div>
       </form>
@@ -1091,9 +1169,9 @@ export function PressReleaseWorkspace({
         <div className="loading-panel" role="status" aria-live="polite">
           <span className="spinner spinner-dark" aria-hidden="true" />
           <div>
-            <strong>{processing === "reviewing" ? "Review in progress" : "Rewrite in progress"}</strong>
+            <strong>{processing === "reviewing" ? t("reviewInProgress") : t("rewriteInProgress")}</strong>
             <p>{loadingMessage}{longReasoningMessage}</p>
-            <span className="loading-elapsed">Elapsed: {formatElapsed(elapsedSeconds)}</span>
+            <span className="loading-elapsed">{t("elapsed", { time: formatElapsed(elapsedSeconds, t) })}</span>
           </div>
         </div>
       ) : null}
@@ -1102,26 +1180,26 @@ export function PressReleaseWorkspace({
         <div className="error-panel" role="alert" ref={errorRef} tabIndex={-1}>
           <div className="error-symbol" aria-hidden="true">!</div>
           <div>
-            <strong>We could not complete that request</strong>
+            <strong>{t("requestFailed")}</strong>
             <p>{requestError.message}</p>
             {requestError.diagnostics?.stage ? (
-              <dl className="error-diagnostics" aria-label="Request diagnostics">
-                <div><dt>Stage</dt><dd>{stageLabel(requestError.diagnostics.stage)}</dd></div>
+              <dl className="error-diagnostics" aria-label={t("requestDiagnostics")}>
+                <div><dt>{t("stage")}</dt><dd>{stageLabel(requestError.diagnostics.stage, t)}</dd></div>
                 {requestError.diagnostics.provider ? (
-                  <div><dt>Provider</dt><dd>{requestError.diagnostics.provider}</dd></div>
+                  <div><dt>{t("provider")}</dt><dd>{requestError.diagnostics.provider}</dd></div>
                 ) : null}
                 {requestError.diagnostics.model ? (
-                  <div><dt>Model</dt><dd>{requestError.diagnostics.model}</dd></div>
+                  <div><dt>{t("model")}</dt><dd>{requestError.diagnostics.model}</dd></div>
                 ) : null}
                 {requestError.diagnostics.httpStatus !== undefined ? (
                   <div>
-                    <dt>HTTP status</dt>
-                    <dd>{requestError.diagnostics.httpStatus || "No response"}</dd>
+                    <dt>{t("httpStatus")}</dt>
+                    <dd>{requestError.diagnostics.httpStatus || t("noResponse")}</dd>
                   </div>
                 ) : null}
                 {requestError.diagnostics.causeSummary ? (
                   <div className="error-cause">
-                    <dt>Cause</dt><dd>{requestError.diagnostics.causeSummary}</dd>
+                    <dt>{t("cause")}</dt><dd>{locale === "en" ? requestError.diagnostics.causeSummary : t("diagnosticCauseGeneric")}</dd>
                   </div>
                 ) : null}
               </dl>
@@ -1133,7 +1211,7 @@ export function PressReleaseWorkspace({
                 onClick={handleRetryRewrite}
                 disabled={busy}
               >
-                Retry Rewrite
+                {t("retryRewrite")}
               </button>
             ) : null}
           </div>
@@ -1146,7 +1224,7 @@ export function PressReleaseWorkspace({
           ref={resultRef}
           tabIndex={-1}
           role="region"
-          aria-label="Review result"
+          aria-label={t("reviewResultRegion")}
         >
           {review ? (
             <ReviewSummary

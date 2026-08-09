@@ -3,9 +3,11 @@
 import { useState } from "react";
 
 import { AuthRequestError, logout } from "@/lib/client/auth-api";
+import { useRewriteI18n } from "@/lib/client/rewrite-i18n";
 import { clearRewriteSession } from "@/lib/client/rewrite-session";
 
 export function LogoutButton() {
+  const { t } = useRewriteI18n();
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -23,7 +25,7 @@ export function LogoutButton() {
         window.location.replace("/login");
         return;
       }
-      setErrorMessage("Logout failed. Please try again.");
+      setErrorMessage(t("logoutFailed"));
       setSubmitting(false);
     }
   }
@@ -36,7 +38,7 @@ export function LogoutButton() {
         disabled={submitting}
         onClick={handleLogout}
       >
-        {submitting ? "Logging out…" : "Logout"}
+        {submitting ? t("loggingOut") : t("logout")}
       </button>
       {errorMessage ? <span role="alert">{errorMessage}</span> : null}
     </div>

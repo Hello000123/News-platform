@@ -7,6 +7,7 @@ import {
   type RewriteLengthOption,
   type RewriteRefinement,
 } from "@/lib/shared/contracts";
+import { useRewriteI18n } from "@/lib/client/rewrite-i18n";
 
 interface OutputPanelProps {
   output: string;
@@ -29,6 +30,7 @@ export function OutputPanel({
   onEditInput,
   onStartNew,
 }: OutputPanelProps) {
+  const { t } = useRewriteI18n();
   const [showRefinement, setShowRefinement] = useState(false);
   const [lengthOption, setLengthOption] = useState<RewriteLengthOption | null>(null);
   const [instruction, setInstruction] = useState("");
@@ -54,19 +56,16 @@ export function OutputPanel({
         <div>
           <div className="section-kicker">
             <span>03</span>
-            Final output
+            {t("finalOutput")}
           </div>
-          <h2 id="output-title">AI-rewritten news report</h2>
-          <p>
-            Created from the reviewed draft and its feedback. Verify every name, date, number,
-            quotation, attribution, and retained placeholder before publication.
-          </p>
+          <h2 id="output-title">{t("outputTitle")}</h2>
+          <p>{t("outputHelp")}</p>
         </div>
-        <span className="output-badge badge-ai">AI rewritten</span>
+        <span className="output-badge badge-ai">{t("aiRewritten")}</span>
       </div>
 
       <label className="sr-only" htmlFor="final-output">
-        Final news report text
+        {t("finalTextLabel")}
       </label>
       <textarea
         id="final-output"
@@ -79,7 +78,7 @@ export function OutputPanel({
 
       <div className="output-actions">
         <button className="button button-primary" type="button" onClick={onCopy} disabled={busy}>
-          {copied ? "Copied" : "Copy to Clipboard"}
+          {copied ? t("copied") : t("copyToClipboard")}
         </button>
         <button
           className="button button-secondary"
@@ -89,13 +88,13 @@ export function OutputPanel({
           aria-expanded={showRefinement}
           aria-controls="rewrite-refinement-controls"
         >
-          Rewrite with AI Again
+          {t("rewriteAgainWithAi")}
         </button>
         <button className="button button-quiet" type="button" onClick={onEditInput} disabled={busy}>
-          Edit draft myself
+          {t("editDraftMyself")}
         </button>
         <button className="button button-quiet" type="button" onClick={onStartNew} disabled={busy}>
-          Start New Draft
+          {t("startNewDraft")}
         </button>
       </div>
       {showRefinement ? (
@@ -106,13 +105,13 @@ export function OutputPanel({
         >
           <div className="refinement-heading">
             <div>
-              <h3>Refine the next rewrite</h3>
-              <p>Length options are optional. Choose one or leave both unselected.</p>
+              <h3>{t("refineNextRewrite")}</h3>
+              <p>{t("refinementHelp")}</p>
             </div>
           </div>
 
           <span className="input-label" id="rewrite-length-label">
-            Length and detail <span className="optional-label">(optional)</span>
+            {t("lengthAndDetail")} <span className="optional-label">{t("optional")}</span>
           </span>
           <div
             className="length-option-group"
@@ -126,7 +125,7 @@ export function OutputPanel({
               onClick={() => toggleLengthOption("concise")}
               disabled={busy}
             >
-              Concise
+              {t("concise")}
             </button>
             <button
               className="length-option"
@@ -135,26 +134,26 @@ export function OutputPanel({
               onClick={() => toggleLengthOption("more_detailed")}
               disabled={busy}
             >
-              More detailed
+              {t("moreDetailed")}
             </button>
           </div>
 
           <label className="input-label" htmlFor="rewrite-instructions">
-            Improvement instructions <span className="optional-label">(optional)</span>
+            {t("improvementInstructions")} <span className="optional-label">{t("optional")}</span>
           </label>
           <textarea
             id="rewrite-instructions"
             className="refinement-instructions"
             value={instruction}
             onChange={(event) => setInstruction(event.target.value)}
-            placeholder="Describe how you want the article improved"
+            placeholder={t("improvementPlaceholder")}
             maxLength={MAX_REWRITE_INSTRUCTION_CHARS}
             disabled={busy}
           />
 
           <div className="refinement-actions">
             <button className="button button-primary" type="submit" disabled={busy}>
-              Rewrite Again
+              {t("rewriteAgain")}
             </button>
             <button
               className="button button-quiet"
@@ -162,13 +161,13 @@ export function OutputPanel({
               onClick={closeRefinement}
               disabled={busy}
             >
-              Cancel
+              {t("cancel")}
             </button>
           </div>
         </form>
       ) : null}
       <p className="copy-status" role="status" aria-live="polite">
-        {copied ? "The final news report was copied to your clipboard." : ""}
+        {copied ? t("copiedStatus") : ""}
       </p>
     </section>
   );

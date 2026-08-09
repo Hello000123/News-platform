@@ -1,5 +1,8 @@
+"use client";
+
 import type { CSSProperties } from "react";
 
+import { useRewriteI18n } from "@/lib/client/rewrite-i18n";
 import type { ReviewResult } from "@/lib/shared/contracts";
 
 interface ReviewSummaryProps {
@@ -25,10 +28,12 @@ function FeedbackList({
   title,
   items,
   variant,
+  emptyLabel,
 }: {
   title: string;
   items: string[];
   variant: "positive" | "warning" | "neutral";
+  emptyLabel: string;
 }) {
   return (
     <section className={"feedback-block feedback-" + variant}>
@@ -43,7 +48,7 @@ function FeedbackList({
           ))}
         </ul>
       ) : (
-        <p className="empty-feedback">None identified.</p>
+        <p className="empty-feedback">{emptyLabel}</p>
       )}
     </section>
   );
@@ -58,33 +63,34 @@ export function ReviewSummary({
   onRewrite,
   onEditDraft,
 }: ReviewSummaryProps) {
+  const { locale, t } = useRewriteI18n();
   const passed = review.decision === "PASS";
   const scores: ScoreItem[] = [
-    { label: "Content completeness & consistency (25%)", score: review.factualCompletenessScore },
-    { label: "Structure & organisation (20%)", score: review.structureScore },
-    { label: "Clarity & readability (15%)", score: review.clarityScore },
-    { label: "Grammar & language (15%)", score: review.languageQualityScore },
-    { label: "News professionalism (15%)", score: review.professionalismScore },
-    { label: "Attribution & quotation clarity (10%)", score: review.attributionScore },
+    { label: t("scoreContent"), score: review.factualCompletenessScore },
+    { label: t("scoreStructure"), score: review.structureScore },
+    { label: t("scoreClarity"), score: review.clarityScore },
+    { label: t("scoreGrammar"), score: review.languageQualityScore },
+    { label: t("scoreProfessional"), score: review.professionalismScore },
+    { label: t("scoreAttribution"), score: review.attributionScore },
   ];
   const scoreReasons = [
-    "Content completeness & consistency: " + review.scoreReasons.factualCompleteness,
-    "Structure & organisation: " + review.scoreReasons.structure,
-    "Clarity & readability: " + review.scoreReasons.clarity,
-    "Grammar & language: " + review.scoreReasons.languageQuality,
-    "News professionalism: " + review.scoreReasons.professionalism,
-    "Attribution & quotation clarity: " + review.scoreReasons.attribution,
+    `${t("reasonContent")}: ${review.scoreReasons.factualCompleteness}`,
+    `${t("reasonStructure")}: ${review.scoreReasons.structure}`,
+    `${t("reasonClarity")}: ${review.scoreReasons.clarity}`,
+    `${t("reasonGrammar")}: ${review.scoreReasons.languageQuality}`,
+    `${t("reasonProfessional")}: ${review.scoreReasons.professionalism}`,
+    `${t("reasonAttribution")}: ${review.scoreReasons.attribution}`,
   ];
   const findings = review.findings.map(
     ({ category, severity, issue, evidence, recommendation }) =>
-      `[${category} — ${severity}] ${issue} Evidence: ${evidence} Action: ${recommendation}`,
+      t("findingLine", { category, severity, issue, evidence, recommendation }),
   );
   const readinessLabel = {
-    PUBLICATION_READY: "Publication-ready",
-    STRONG_LIMITED_EDITING: "Strong — limited editing needed",
-    SUBSTANTIAL_REWRITE: "Usable — substantial rewrite needed",
-    WEAK: "Weak draft",
-    SEVERELY_DEFICIENT: "Severely deficient",
+    PUBLICATION_READY: t("publicationReady"),
+    STRONG_LIMITED_EDITING: t("strongLimited"),
+    SUBSTANTIAL_REWRITE: t("substantialRewrite"),
+    WEAK: t("weakDraft"),
+    SEVERELY_DEFICIENT: t("severelyDeficient"),
   }[review.readinessBand];
   const scoreStyle = { "--score": rounded(review.overallScore) + "%" } as CSSProperties;
 
@@ -92,18 +98,15 @@ export function ReviewSummary({
     <section className="card review-card" aria-labelledby="review-title">
       <div className="section-kicker">
         <span>02</span>
-        Review result
+        {t("reviewResult")}
       </div>
 
       {reviewIsStale ? (
         <div className="stale-review-note" id="stale-review-note" role="status">
           <span aria-hidden="true">!</span>
           <div>
-            <strong>Review applies to an earlier version</strong>
-            <p>
-              You changed the draft or source URL after this review. Review the updated source
-              input again before requesting an AI rewrite.
-            </p>
+            <strong>{t("staleReviewTitle")}</strong>
+            <p>{t("staleReviewBody")}</p>
           </div>
         </div>
       ) : null}
@@ -112,7 +115,7 @@ export function ReviewSummary({
         <div
           className="score-ring"
           style={scoreStyle}
-          aria-label={rounded(review.overallScore) + " out of 100"}
+          aria-label={t("scoreOutOf100", { score: rounded(review.overallScore) })}
         >
           <div className="score-ring-inner">
             <strong>{rounded(review.overallScore)}</strong>
@@ -122,17 +125,17 @@ export function ReviewSummary({
         <div className="decision-copy">
           <div className="decision-label">
             <span className="status-dot" aria-hidden="true" />
-            {passed ? "Passed review" : "Below pass threshold"}
+            {passed ? t("passedReview") : t("belowThreshold")}
           </div>
           <h2 id="review-title">
-            {passed ? "Review complete" : "Review complete — changes recommended"}
+            {passed ? t("reviewComplete") : t("changesRecommended")}
           </h2>
-          <p>{message}</p>
-          <p className="readiness-note">Readiness: {readinessLabel}</p>
-          <p className="threshold-note">Pass threshold: {passScore}/100</p>
+          <p>{locale === "en" ? message : t(passed ? "reviewMeetsMessage" : "reviewBelowMessage")}</p>
+          <p className="readiness-note">{t("readiness")}: {readinessLabel}</p>
+          <p className="threshold-note">{t("passThreshold")}: {passScore}/100</p>
           {review.appliedScoreCap !== null ? (
             <p className="threshold-note">
-              Consistency cap: {review.appliedScoreCap}/100 — {review.scoreCapReasons.join(" ")}
+              {t("consistencyCap")}: {review.appliedScoreCap}/100 — {review.scoreCapReasons.join(" ")}
             </p>
           ) : null}
         </div>
@@ -144,7 +147,7 @@ export function ReviewSummary({
             disabled={busy || reviewIsStale}
             aria-describedby={reviewIsStale ? "stale-review-note" : undefined}
           >
-            Rewrite with AI
+            {t("rewriteWithAi")}
           </button>
           <button
             className="button button-secondary"
@@ -152,12 +155,12 @@ export function ReviewSummary({
             onClick={onEditDraft}
             disabled={busy}
           >
-            Edit draft myself
+            {t("editDraftMyself")}
           </button>
         </div>
       </div>
 
-      <div className="score-grid" aria-label="Category scores">
+      <div className="score-grid" aria-label={t("categoryScores")}>
         {scores.map((item) => (
           <div className="score-tile" key={item.label}>
             <div className="score-tile-top">
@@ -172,18 +175,20 @@ export function ReviewSummary({
       </div>
 
       <div className="feedback-grid">
-        <FeedbackList title="Score rationale" items={scoreReasons} variant="neutral" />
-        <FeedbackList title="Strengths" items={review.strengths} variant="positive" />
-        <FeedbackList title="Findings" items={findings} variant="warning" />
+        <FeedbackList title={t("scoreRationale")} items={scoreReasons} variant="neutral" emptyLabel={t("noneIdentified")} />
+        <FeedbackList title={t("strengths")} items={review.strengths} variant="positive" emptyLabel={t("noneIdentified")} />
+        <FeedbackList title={t("findings")} items={findings} variant="warning" emptyLabel={t("noneIdentified")} />
         <FeedbackList
-          title="Missing or unclear information"
+          title={t("missingInformation")}
           items={review.missingInformation}
           variant="warning"
+          emptyLabel={t("noneIdentified")}
         />
         <FeedbackList
-          title="Recommended improvements"
+          title={t("recommendedImprovements")}
           items={review.recommendations}
           variant="neutral"
+          emptyLabel={t("noneIdentified")}
         />
       </div>
     </section>
