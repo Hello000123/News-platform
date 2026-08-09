@@ -101,6 +101,7 @@ describe("authentication email templates", () => {
         periodRequestCount: 0,
         periodReviewRequestCount: 0,
         periodRewriteRequestCount: 0,
+        aiSuspension: null,
       },
       'Access ended <img src=x onerror="alert(1)">\nContact the administrator.',
     );

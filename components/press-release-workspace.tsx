@@ -112,12 +112,56 @@ function formattedUploadSize(bytes: number, locale: RewriteLocale) {
   })} KB`;
 }
 
+function suspensionPeriodLabel(
+  period: NonNullable<ApiRequestError["details"]>["suspensionPeriod"],
+  t: RewriteTranslator,
+) {
+  if (period === "last_15_minutes") return t("suspensionLast15Minutes");
+  if (period === "last_1_hour") return t("suspensionLast1Hour");
+  if (period === "last_6_hours") return t("suspensionLast6Hours");
+  if (period === "last_12_hours") return t("suspensionLast12Hours");
+  return period === "last_24_hours" ? t("suspensionLast24Hours") : null;
+}
+
+function formattedSuspensionExpiry(timestamp: number, locale: RewriteLocale) {
+  return new Intl.DateTimeFormat(locale === "zh-HK" ? "zh-HK" : "en-HK", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Hong_Kong",
+    timeZoneName: "short",
+  }).format(new Date(timestamp * 1_000));
+}
+
 function messageForError(
   error: unknown,
   locale: RewriteLocale,
   t: RewriteTranslator,
 ) {
   if (error instanceof ApiRequestError) {
+    if (error.code === "ACCOUNT_TEMPORARILY_SUSPENDED") {
+      const details = error.details;
+      const period = suspensionPeriodLabel(details?.suspensionPeriod, t);
+      if (
+        period &&
+        Number.isInteger(details?.suspensionExpiresAt) &&
+        Number.isInteger(details?.suspensionThreshold) &&
+        Number.isInteger(details?.suspensionObservedCount)
+      ) {
+        return t("accountSuspended", {
+          period,
+          threshold: Number(details?.suspensionThreshold).toLocaleString(locale),
+          observed: Number(details?.suspensionObservedCount).toLocaleString(locale),
+          expiresAt: formattedSuspensionExpiry(
+            Number(details?.suspensionExpiresAt),
+            locale,
+          ),
+        });
+      }
+      return locale === "en" ? error.message : t("accountSuspendedGeneric");
+    }
     if (locale === "zh-HK") {
       if (error.code === "VALIDATION_ERROR") return t("validationError");
       if (error.code === "INVALID_SOURCE_URL") return t("invalidSourceUrl");

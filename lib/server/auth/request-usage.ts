@@ -2,13 +2,100 @@ import type { D1Database } from "@cloudflare/workers-types";
 
 import { createId, nowInSeconds } from "@/lib/server/auth/crypto";
 import { getDatabase } from "@/lib/server/auth/database";
+import { AppError } from "@/lib/server/errors";
 import {
+  agentUsagePeriodLabel,
+  isAgentSuspensionPeriod,
   resolveAgentUsageWindow,
   type AgentUsagePeriod,
 } from "@/lib/shared/agent-usage";
 import type { AgentUsagePeriodView } from "@/lib/shared/auth-contracts";
 
 export type AgentRequestKind = "review" | "rewrite";
+
+export const AGENT_USAGE_SUSPENSION_SECONDS = 6 * 60 * 60;
+
+interface AgentSuspensionRow {
+  role: "client" | "employee";
+  status: "setup_pending" | "active" | "disabled";
+  ai_suspension_id: string | null;
+  ai_suspended_at: number | null;
+  ai_suspended_until: number | null;
+  ai_suspension_period: string | null;
+  ai_suspension_threshold: number | null;
+  ai_suspension_observed_count: number | null;
+}
+
+function formattedSuspensionExpiry(timestamp: number) {
+  return new Intl.DateTimeFormat("en-HK", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Hong_Kong",
+    timeZoneName: "short",
+  }).format(new Date(timestamp * 1_000));
+}
+
+function temporarySuspensionError(row: AgentSuspensionRow) {
+  const period = row.ai_suspension_period;
+  const startedAt = Number(row.ai_suspended_at);
+  const expiresAt = Number(row.ai_suspended_until);
+  const threshold = Number(row.ai_suspension_threshold);
+  const observedCount = Number(row.ai_suspension_observed_count);
+  if (
+    !row.ai_suspension_id ||
+    !isAgentSuspensionPeriod(period) ||
+    !Number.isInteger(startedAt) ||
+    !Number.isInteger(expiresAt) ||
+    threshold < 1 ||
+    observedCount < 1
+  ) {
+    throw new AppError(
+      "ACCOUNT_TEMPORARILY_SUSPENDED",
+      "This account is temporarily suspended from making AI requests.",
+      429,
+      { publicDetails: { retryable: false } },
+    );
+  }
+  const label = agentUsagePeriodLabel(period);
+  throw new AppError(
+    "ACCOUNT_TEMPORARILY_SUSPENDED",
+    `This account is temporarily suspended from making AI requests because ${observedCount.toLocaleString("en-US")} requests in ${label} exceeded the configured limit of ${threshold.toLocaleString("en-US")}. AI access resumes at ${formattedSuspensionExpiry(expiresAt)}.`,
+    429,
+    {
+      publicDetails: {
+        retryable: false,
+        suspensionStartedAt: startedAt,
+        suspensionExpiresAt: expiresAt,
+        suspensionPeriod: period,
+        suspensionThreshold: threshold,
+        suspensionObservedCount: observedCount,
+      },
+    },
+  );
+}
+
+function getAgentSuspensionRow(database: D1Database, userId: string) {
+  return database
+    .prepare(
+      `SELECT
+         role,
+         status,
+         ai_suspension_id,
+         ai_suspended_at,
+         ai_suspended_until,
+         ai_suspension_period,
+         ai_suspension_threshold,
+         ai_suspension_observed_count
+       FROM users
+       WHERE id = ?
+       LIMIT 1`,
+    )
+    .bind(userId)
+    .first<AgentSuspensionRow>();
+}
 
 export async function incrementAgentRequestAttempt(
   database: D1Database,
@@ -19,29 +106,41 @@ export async function incrementAgentRequestAttempt(
   if (!Number.isInteger(attemptedAt) || attemptedAt < 0) {
     throw new TypeError("Agent request time must be a non-negative whole Unix timestamp.");
   }
-  const reviewIncrement = kind === "review" ? 1 : 0;
-  const rewriteIncrement = kind === "rewrite" ? 1 : 0;
-
-  await database.batch([
-    database
+  const eventId = createId();
+  try {
+    await database
       .prepare(
         `INSERT INTO agent_request_events (
-          id, user_id, request_kind, attempted_at
-         ) VALUES (?, ?, ?, ?)`,
+           id, user_id, request_kind, attempted_at
+         )
+         SELECT ?, id, ?, ?
+         FROM users
+         WHERE id = ? AND status = 'active'`,
       )
-      .bind(createId(), userId, kind, attemptedAt),
-    database
-      .prepare(
-        `INSERT INTO agent_request_usage (
-          user_id, review_request_count, rewrite_request_count, updated_at
-         ) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           review_request_count = review_request_count + excluded.review_request_count,
-           rewrite_request_count = rewrite_request_count + excluded.rewrite_request_count,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(userId, reviewIncrement, rewriteIncrement, attemptedAt),
-  ]);
+      .bind(eventId, kind, attemptedAt, userId)
+      .run();
+  } catch (error) {
+    const activeSuspension = await getAgentSuspensionRow(database, userId);
+    if (
+      activeSuspension?.role === "client" &&
+      Number(activeSuspension.ai_suspended_until ?? 0) > attemptedAt
+    ) {
+      temporarySuspensionError(activeSuspension);
+    }
+    throw error;
+  }
+
+  const suspension = await getAgentSuspensionRow(database, userId);
+  if (!suspension || suspension.status !== "active") {
+    throw new AppError("AUTH_REQUIRED", "Sign in to continue.", 401);
+  }
+  if (
+    suspension.role === "client" &&
+    suspension.ai_suspension_id === eventId &&
+    Number(suspension.ai_suspended_until ?? 0) > attemptedAt
+  ) {
+    temporarySuspensionError(suspension);
+  }
 }
 
 export function recordAgentRequestAttempt(userId: string, kind: AgentRequestKind) {

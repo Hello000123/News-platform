@@ -474,6 +474,20 @@ Existing aggregate lifetime totals remain intact. Consequently, a time range
 that begins before the migration is marked as partial in the Admin Panel,
 while Lifetime still includes those earlier aggregate-only requests.
 
+The same timestamped events drive optional automatic client protection.
+Employees can configure and independently enable positive whole-number limits
+for rolling 15-minute, 1-hour, 6-hour, 12-hour, and 24-hour periods. All rules
+are disabled by default. A syntactically valid request that takes a client above
+an enabled limit is counted, recorded, and blocked before the AI provider is
+called; the account then remains blocked from AI requests for exactly six hours.
+Concurrent event insertion, lifetime-counter maintenance, breach selection, and
+the immutable suspension audit entry execute as one serialized D1 statement.
+The shortest breached period is recorded when rules overlap, an active
+suspension is never extended by later attempts, and employee accounts are
+exempt. Migration `0017_configurable_agent_usage_suspensions.sql` adds the
+configuration, audit records, suspension state, and database triggers. It adds
+no environment variables.
+
 Passwords must contain 9–63 English keyboard characters. No uppercase,
 lowercase, number, symbol, or character-combination rule is imposed. Passwords
 use scrypt (`N=32768`, `r=8`, `p=3`) in the browser or employee CLI. D1 stores

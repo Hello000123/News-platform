@@ -46,6 +46,16 @@ export class ApiRequestError extends Error {
     public readonly details?: {
       messages?: string[];
       retryable?: boolean;
+      suspensionStartedAt?: number;
+      suspensionExpiresAt?: number;
+      suspensionPeriod?:
+        | "last_15_minutes"
+        | "last_1_hour"
+        | "last_6_hours"
+        | "last_12_hours"
+        | "last_24_hours";
+      suspensionThreshold?: number;
+      suspensionObservedCount?: number;
       stage?: "review_request" | "rewrite_request";
       provider?: string;
       model?: string;
@@ -145,6 +155,11 @@ async function postJson(endpoint: string, body: unknown) {
         {
           messages: serverError.details,
           retryable: serverError.retryable,
+          suspensionStartedAt: serverError.suspensionStartedAt,
+          suspensionExpiresAt: serverError.suspensionExpiresAt,
+          suspensionPeriod: serverError.suspensionPeriod,
+          suspensionThreshold: serverError.suspensionThreshold,
+          suspensionObservedCount: serverError.suspensionObservedCount,
           stage: serverError.stage,
           provider: serverError.provider,
           model: serverError.model,

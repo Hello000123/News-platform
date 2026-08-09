@@ -132,6 +132,49 @@ describe("client API response validation", () => {
     expect(failure?.details).toBeUndefined();
   });
 
+  it("preserves structured temporary-suspension details from the server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "ACCOUNT_TEMPORARILY_SUSPENDED",
+              message: "AI access is temporarily suspended.",
+              retryable: false,
+              suspensionStartedAt: 1_800_000_000,
+              suspensionExpiresAt: 1_800_021_600,
+              suspensionPeriod: "last_15_minutes",
+              suspensionThreshold: 3,
+              suspensionObservedCount: 4,
+            },
+          }),
+          { status: 429, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    let failure: ApiRequestError | undefined;
+    try {
+      await requestReview({ draft: source.primaryText, sourceUrl: "" });
+    } catch (error) {
+      failure = error as ApiRequestError;
+    }
+
+    expect(failure).toMatchObject({
+      code: "ACCOUNT_TEMPORARILY_SUSPENDED",
+      message: "AI access is temporarily suspended.",
+      details: {
+        retryable: false,
+        suspensionStartedAt: 1_800_000_000,
+        suspensionExpiresAt: 1_800_021_600,
+        suspensionPeriod: "last_15_minutes",
+        suspensionThreshold: 3,
+        suspensionObservedCount: 4,
+      },
+    });
+  });
+
   it("posts the selected model with a review request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

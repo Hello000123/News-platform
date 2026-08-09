@@ -2355,6 +2355,108 @@ footer p {
   margin: 3px 0 0;
 }
 
+.admin-threshold-settings {
+  display: grid;
+  margin-bottom: 16px;
+  padding: 20px;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow-small);
+}
+
+.admin-threshold-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+
+.admin-threshold-heading h2 {
+  margin: 4px 0 4px;
+  color: var(--ink-strong);
+  font-size: 19px;
+}
+
+.admin-threshold-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-threshold-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.admin-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.admin-threshold-rule {
+  display: grid;
+  min-width: 0;
+  padding: 13px;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.admin-threshold-rule > div {
+  display: flex;
+  min-height: 42px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-threshold-rule strong {
+  color: var(--ink-strong);
+  font-size: 13px;
+}
+
+.admin-threshold-rule > label {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.admin-threshold-rule > input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #ffffff;
+  color: var(--ink-strong);
+}
+
+.admin-threshold-toggle {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.admin-threshold-toggle input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
 .admin-account-row {
   display: flex;
   min-width: 0;
@@ -2396,6 +2498,35 @@ footer p {
 .admin-account-row .status-badge {
   grid-column: 2;
   grid-row: 1 / span 2;
+}
+
+.admin-account-suspension {
+  display: grid;
+  margin-top: 8px;
+  padding: 11px 13px;
+  gap: 2px;
+  border: 1px solid #efb9b2;
+  border-radius: 10px;
+  background: var(--red-soft);
+  grid-column: 1 / -1;
+}
+
+.admin-account-suspension strong {
+  color: #7a2119;
+  font-size: 13px;
+}
+
+.admin-account-suspension span {
+  color: #7a2119;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-account-suspension p {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .admin-account-usage {
@@ -2901,6 +3032,18 @@ footer p {
   .admin-usage-toolbar > div:first-child,
   .admin-usage-toolbar select {
     width: 100%;
+  }
+
+  .admin-threshold-heading {
+    display: grid;
+  }
+
+  .admin-threshold-heading .button {
+    width: 100%;
+  }
+
+  .admin-threshold-grid {
+    grid-template-columns: 1fr;
   }
 
   .admin-tabs {

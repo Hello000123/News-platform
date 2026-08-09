@@ -56,6 +56,11 @@ starts timestamped request-attempt tracking and adds indexes for per-user and
 cross-user time-window aggregation. It deliberately does not backfill events
 from the lifetime counters because no reliable historical timestamps exist.
 Times are stored as Unix seconds in UTC.
+[`migrations/0017_configurable_agent_usage_suspensions.sql`](../migrations/0017_configurable_agent_usage_suspensions.sql)
+adds five disabled-by-default rolling threshold rules, audited administrator
+changes, client suspension state, immutable suspension audit records, and the
+single-statement D1 triggers that serialize event counting and enforcement.
+No new secret or environment variable is required.
 
 ### Hosted-runtime password compatibility
 
@@ -105,6 +110,15 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
    Client Accounts offers backend-aggregated rolling usage periods, Hong Kong
    month/year-to-date periods, and preserved lifetime totals. A range that
    starts before timestamped tracking is explicitly marked partial.
+   The same tab lets an employee independently enable and configure positive
+   whole-number thresholds for 15 minutes, 1 hour, 6 hours, 12 hours, and 24
+   hours. All five rules start disabled with a stored value of 100. A valid
+   request that raises a client above a limit is recorded but stopped before an
+   AI-provider call, then AI access is suspended for six hours. The shortest
+   breached rule wins when periods overlap. Later attempts neither add events
+   nor extend an active expiry. At the exact expiry timestamp the account is
+   treated as active without a scheduled cleanup job. Employee accounts are
+   exempt. The client list shows the reason and exact Hong Kong expiry time.
    Removing a client deactivates the user, clears the password hash, revokes all
    sessions, invalidates unused setup tokens, stores an audit record, and sends
    the administrator's message to the client. Employee removal is not exposed.
@@ -325,6 +339,10 @@ the migration SQL. It covers:
 - employee Admin Panel list access and client `403`;
 - deterministic rolling and `Asia/Hong_Kong` calendar usage windows, indexed
   event aggregation, partial-history metadata, and preserved lifetime totals;
+- disabled and enabled automatic-suspension rules, exact threshold boundaries,
+  overlapping-rule priority, concurrent attempts, six-hour expiry, non-extension,
+  employee exemption, configuration validation/authorization, and both threshold
+  and suspension audit records;
 - live employee/client role totals after approval, role change, and deletion;
 - separate client/employee account lists, required two-stage client-removal
   confirmation, session revocation, disabled login, email status, and immutable

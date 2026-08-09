@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import type { AgentUsagePeriod } from "@/lib/shared/agent-usage";
+import {
+  AGENT_SUSPENSION_PERIODS,
+  type AgentSuspensionPeriod,
+  type AgentUsagePeriod,
+} from "@/lib/shared/agent-usage";
 
 export const USER_ROLES = ["client", "employee"] as const;
 export const USER_STATUSES = ["setup_pending", "active", "disabled"] as const;
@@ -22,6 +26,52 @@ export const PASSWORD_SALT_BYTES = 16;
 export const SCRYPT_COST = 32_768;
 export const SCRYPT_BLOCK_SIZE = 8;
 export const SCRYPT_PARALLELIZATION = 3;
+export const AGENT_USAGE_THRESHOLD_MAX = 1_000_000;
+
+const agentSuspensionPeriodSchema = z.enum([
+  "last_15_minutes",
+  "last_1_hour",
+  "last_6_hours",
+  "last_12_hours",
+  "last_24_hours",
+]);
+
+export const agentUsageThresholdUpdateSchema = z
+  .object({
+    rules: z
+      .array(
+        z
+          .object({
+            period: agentSuspensionPeriodSchema,
+            enabled: z.boolean(),
+            threshold: z
+              .number()
+              .int("Each threshold must be a whole number.")
+              .positive("Each threshold must be a positive whole number.")
+              .max(
+                AGENT_USAGE_THRESHOLD_MAX,
+                `Each threshold must not exceed ${AGENT_USAGE_THRESHOLD_MAX.toLocaleString()} requests.`,
+              ),
+          })
+          .strict(),
+      )
+      .length(
+        AGENT_SUSPENSION_PERIODS.length,
+        "Submit one threshold rule for every supported period.",
+      ),
+  })
+  .strict()
+  .superRefine(({ rules }, context) => {
+    for (const { key } of AGENT_SUSPENSION_PERIODS) {
+      if (rules.filter(({ period }) => period === key).length === 1) continue;
+      context.addIssue({
+        code: "custom",
+        path: ["rules"],
+        message: "Submit each supported threshold period exactly once.",
+      });
+      break;
+    }
+  });
 
 function requiredSingleLine(label: string, maximum: number) {
   return z
@@ -358,7 +408,35 @@ export interface AccountListUserView {
   periodRequestCount: number;
   periodReviewRequestCount: number;
   periodRewriteRequestCount: number;
+  aiSuspension: AgentUsageSuspensionView | null;
 }
+
+export interface AgentUsageSuspensionView {
+  id: string;
+  startedAt: number;
+  expiresAt: number;
+  triggeredPeriod: AgentSuspensionPeriod;
+  periodLabel: string;
+  configuredThreshold: number;
+  observedRequestCount: number;
+}
+
+export interface AgentUsageThresholdRuleView {
+  period: AgentSuspensionPeriod;
+  label: string;
+  enabled: boolean;
+  threshold: number;
+  updatedAt: number;
+  updatedBy: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
+}
+
+export type AgentUsageThresholdUpdateInput = z.infer<
+  typeof agentUsageThresholdUpdateSchema
+>;
 
 export interface AgentUsagePeriodView {
   period: AgentUsagePeriod;

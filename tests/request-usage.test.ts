@@ -11,9 +11,32 @@ import {
 } from "@/lib/server/auth/request-usage";
 
 async function executeSqlScript(database: D1Database, sql: string) {
-  for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean)) {
-    await database.prepare(statement).run();
+  let pending = "";
+  let insideTrigger = false;
+  const statements: string[] = [];
+  for (const line of sql.replace(/\r/gu, "").split("\n")) {
+    if (!insideTrigger && /^\s*CREATE\s+TRIGGER\b/iu.test(line)) {
+      insideTrigger = true;
+    }
+    pending += `${pending ? "\n" : ""}${line}`;
+    if (insideTrigger) {
+      if (/^\s*END;\s*$/iu.test(line)) {
+        statements.push(pending.trim());
+        pending = "";
+        insideTrigger = false;
+      }
+      continue;
+    }
+    let separator = pending.indexOf(";");
+    while (separator >= 0) {
+      const statement = pending.slice(0, separator).trim();
+      if (statement) statements.push(statement);
+      pending = pending.slice(separator + 1);
+      separator = pending.indexOf(";");
+    }
   }
+  if (pending.trim()) statements.push(pending.trim());
+  for (const statement of statements) await database.prepare(statement).run();
 }
 
 describe("per-user agent request usage", () => {
@@ -39,9 +62,14 @@ describe("per-user agent request usage", () => {
         new URL("../migrations/0016_timestamped_agent_request_events.sql", import.meta.url),
         "utf8",
       );
+      const suspensionMigration = await readFile(
+        new URL("../migrations/0017_configurable_agent_usage_suspensions.sql", import.meta.url),
+        "utf8",
+      );
       await executeSqlScript(database, initial);
       await executeSqlScript(database, usageMigration);
       await executeSqlScript(database, eventMigration);
+      await executeSqlScript(database, suspensionMigration);
 
       const now = 1_700_000_000;
       await database

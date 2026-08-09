@@ -1,11 +1,15 @@
 export const AGENT_USAGE_BUSINESS_TIME_ZONE = "Asia/Hong_Kong";
 
-export const AGENT_USAGE_PERIODS = [
+export const AGENT_SUSPENSION_PERIODS = [
   { key: "last_15_minutes", label: "Last 15 minutes", rollingSeconds: 15 * 60 },
   { key: "last_1_hour", label: "Last 1 hour", rollingSeconds: 60 * 60 },
   { key: "last_6_hours", label: "Last 6 hours", rollingSeconds: 6 * 60 * 60 },
   { key: "last_12_hours", label: "Last 12 hours", rollingSeconds: 12 * 60 * 60 },
   { key: "last_24_hours", label: "Last 24 hours", rollingSeconds: 24 * 60 * 60 },
+] as const;
+
+export const AGENT_USAGE_PERIODS = [
+  ...AGENT_SUSPENSION_PERIODS,
   { key: "last_7_days", label: "Last 7 days", rollingSeconds: 7 * 24 * 60 * 60 },
   { key: "last_30_days", label: "Last 30 days", rollingSeconds: 30 * 24 * 60 * 60 },
   { key: "last_90_days", label: "Last 90 days", rollingSeconds: 90 * 24 * 60 * 60 },
@@ -17,6 +21,7 @@ export const AGENT_USAGE_PERIODS = [
 ] as const;
 
 export type AgentUsagePeriod = (typeof AGENT_USAGE_PERIODS)[number]["key"];
+export type AgentSuspensionPeriod = (typeof AGENT_SUSPENSION_PERIODS)[number]["key"];
 
 export interface AgentUsageWindow {
   period: AgentUsagePeriod;
@@ -32,6 +37,12 @@ const HONG_KONG_UTC_OFFSET_SECONDS = 8 * 60 * 60;
 
 export function isAgentUsagePeriod(value: unknown): value is AgentUsagePeriod {
   return AGENT_USAGE_PERIODS.some((period) => period.key === value);
+}
+
+export function isAgentSuspensionPeriod(
+  value: unknown,
+): value is AgentSuspensionPeriod {
+  return AGENT_SUSPENSION_PERIODS.some((period) => period.key === value);
 }
 
 export function agentUsagePeriodLabel(period: AgentUsagePeriod) {

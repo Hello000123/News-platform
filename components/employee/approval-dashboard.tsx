@@ -7,8 +7,10 @@ import { ClientRemovalDialog } from "@/components/employee/client-removal-dialog
 import { FeedManagement } from "@/components/employee/feed-management";
 import {
   AuthRequestError,
+  getEmployeeAgentUsageThresholds,
   listEmployeeAccountRequests,
   listEmployeeAccounts,
+  updateEmployeeAgentUsageThresholds,
 } from "@/lib/client/auth-api";
 import type {
   AccountListUserView,
@@ -16,6 +18,7 @@ import type {
   AccountRequestStatus,
   AccountRequestView,
   AgentUsagePeriodView,
+  AgentUsageThresholdRuleView,
   EmailDeliveryView,
 } from "@/lib/shared/auth-contracts";
 import {
@@ -49,6 +52,18 @@ function formattedDate(timestamp: number) {
   }).format(new Date(timestamp * 1_000));
 }
 
+function formattedSuspensionDate(timestamp: number) {
+  return new Intl.DateTimeFormat("en-HK", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Hong_Kong",
+    timeZoneName: "short",
+  }).format(new Date(timestamp * 1_000));
+}
+
 function loadingLabel(tab: AdminTab) {
   if (tab === "approval") return "Loading account requests";
   if (tab === "clients") return "Loading client accounts";
@@ -66,6 +81,11 @@ export function ApprovalDashboard() {
   );
   const [usagePeriodView, setUsagePeriodView] =
     useState<AgentUsagePeriodView | null>(null);
+  const [thresholdRules, setThresholdRules] = useState<
+    AgentUsageThresholdRuleView[]
+  >([]);
+  const [thresholdSaving, setThresholdSaving] = useState(false);
+  const [thresholdError, setThresholdError] = useState("");
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState<{
@@ -85,25 +105,39 @@ export function ApprovalDashboard() {
       };
     }
 
-    const request =
-      activeTab === "approval"
-        ? listEmployeeAccountRequests(filter === "all" ? undefined : filter)
-        : listEmployeeAccounts(
-            activeTab === "clients" ? "client" : "employee",
-            activeTab === "clients" ? usagePeriod : DEFAULT_AGENT_USAGE_PERIOD,
-          );
-
-    request
-      .then((result) => {
+    async function load() {
+      if (activeTab === "approval") {
+        const result = await listEmployeeAccountRequests(
+          filter === "all" ? undefined : filter,
+        );
         if (cancelled) return;
         setSummary(result.summary);
-        if ("requests" in result) {
-          setRequests(result.requests);
-        } else {
-          setAccounts(result.accounts);
-          setUsagePeriodView(result.usagePeriod);
-        }
-      })
+        setRequests(result.requests);
+        return;
+      }
+      if (activeTab === "clients") {
+        const [result, thresholds] = await Promise.all([
+          listEmployeeAccounts("client", usagePeriod),
+          getEmployeeAgentUsageThresholds(),
+        ]);
+        if (cancelled) return;
+        setSummary(result.summary);
+        setAccounts(result.accounts);
+        setUsagePeriodView(result.usagePeriod);
+        setThresholdRules(thresholds.rules);
+        return;
+      }
+      const result = await listEmployeeAccounts(
+        "employee",
+        DEFAULT_AGENT_USAGE_PERIOD,
+      );
+      if (cancelled) return;
+      setSummary(result.summary);
+      setAccounts(result.accounts);
+      setUsagePeriodView(result.usagePeriod);
+    }
+
+    void load()
       .catch((error) => {
         if (!cancelled) {
           setErrorMessage(
@@ -129,8 +163,38 @@ export function ApprovalDashboard() {
     setAccounts([]);
     setRequests([]);
     setUsagePeriodView(null);
+    setThresholdError("");
     if (tab !== "feeds") setLoading(true);
     setActiveTab(tab);
+  }
+
+  async function saveThresholdRules(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setThresholdSaving(true);
+    setThresholdError("");
+    setNotice(null);
+    try {
+      const result = await updateEmployeeAgentUsageThresholds({
+        rules: thresholdRules.map(({ period, enabled, threshold }) => ({
+          period,
+          enabled,
+          threshold,
+        })),
+      });
+      setThresholdRules(result.rules);
+      setNotice({
+        kind: "success",
+        message: "Automatic AI usage suspension thresholds were saved.",
+      });
+    } catch (error) {
+      setThresholdError(
+        error instanceof AuthRequestError
+          ? error.message
+          : "The suspension thresholds could not be saved.",
+      );
+    } finally {
+      setThresholdSaving(false);
+    }
   }
 
   function handleRemoved(delivery: EmailDeliveryView) {
@@ -312,54 +376,139 @@ export function ApprovalDashboard() {
           aria-labelledby={`admin-tab-${activeTab}`}
         >
           {activeTab === "clients" ? (
-            <div className="admin-usage-toolbar">
-              <div>
-                <label htmlFor="admin-usage-period">AI usage period</label>
-                <select
-                  id="admin-usage-period"
-                  value={usagePeriod}
-                  disabled={loading}
-                  onChange={(event) => {
-                    const nextPeriod = event.target.value as AgentUsagePeriod;
-                    if (nextPeriod === usagePeriod) return;
-                    setLoading(true);
-                    setErrorMessage("");
-                    setNotice(null);
-                    setAccounts([]);
-                    setUsagePeriodView(null);
-                    setUsagePeriod(nextPeriod);
-                  }}
-                >
-                  {AGENT_USAGE_PERIODS.map((period) => (
-                    <option value={period.key} key={period.key}>
-                      {period.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {usagePeriodView ? (
-                <div className="admin-usage-coverage" role="note">
-                  <strong>Selected period: {usagePeriodView.label}</strong>
-                  {usagePeriodView.period === "lifetime" ? (
-                    <p>
-                      Lifetime totals preserve requests recorded before timestamped tracking
-                      began.
-                    </p>
-                  ) : usagePeriodView.isComplete ? (
-                    <p>
-                      This window is fully covered by timestamped tracking. Earlier aggregate-only
-                      usage remains available under Lifetime.
-                    </p>
-                  ) : (
-                    <p>
-                      Partial period data: timestamped tracking began{" "}
-                      {formattedDate(usagePeriodView.trackingStartedAt)}. Earlier requests in this
-                      period cannot be reconstructed; their lifetime totals remain preserved.
-                    </p>
-                  )}
+            <>
+              <div className="admin-usage-toolbar">
+                <div>
+                  <label htmlFor="admin-usage-period">AI usage period</label>
+                  <select
+                    id="admin-usage-period"
+                    value={usagePeriod}
+                    disabled={loading}
+                    onChange={(event) => {
+                      const nextPeriod = event.target.value as AgentUsagePeriod;
+                      if (nextPeriod === usagePeriod) return;
+                      setLoading(true);
+                      setErrorMessage("");
+                      setNotice(null);
+                      setAccounts([]);
+                      setUsagePeriodView(null);
+                      setUsagePeriod(nextPeriod);
+                    }}
+                  >
+                    {AGENT_USAGE_PERIODS.map((period) => (
+                      <option value={period.key} key={period.key}>
+                        {period.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+                {usagePeriodView ? (
+                  <div className="admin-usage-coverage" role="note">
+                    <strong>Selected period: {usagePeriodView.label}</strong>
+                    {usagePeriodView.period === "lifetime" ? (
+                      <p>
+                        Lifetime totals preserve requests recorded before timestamped tracking
+                        began.
+                      </p>
+                    ) : usagePeriodView.isComplete ? (
+                      <p>
+                        This window is fully covered by timestamped tracking. Earlier aggregate-only
+                        usage remains available under Lifetime.
+                      </p>
+                    ) : (
+                      <p>
+                        Partial period data: timestamped tracking began{" "}
+                        {formattedDate(usagePeriodView.trackingStartedAt)}. Earlier requests in this
+                        period cannot be reconstructed; their lifetime totals remain preserved.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {thresholdRules.length > 0 ? (
+                <form
+                  className="admin-threshold-settings"
+                  onSubmit={saveThresholdRules}
+                >
+                  <div className="admin-threshold-heading">
+                    <div>
+                      <span className="section-kicker">Automatic protection</span>
+                      <h2>Six-hour AI usage suspension</h2>
+                      <p>
+                        A client is suspended for six hours when a valid AI request
+                        takes an enabled rolling period above its configured limit.
+                      </p>
+                    </div>
+                    <button
+                      className="button button-primary"
+                      type="submit"
+                      disabled={thresholdSaving}
+                    >
+                      {thresholdSaving ? "Saving thresholds…" : "Save thresholds"}
+                    </button>
+                  </div>
+                  {thresholdError ? (
+                    <div className="auth-alert auth-alert-error" role="alert">
+                      {thresholdError}
+                    </div>
+                  ) : null}
+                  <fieldset disabled={thresholdSaving}>
+                    <legend className="sr-only">Automatic suspension thresholds</legend>
+                    <div className="admin-threshold-grid">
+                      {thresholdRules.map((rule) => (
+                        <div className="admin-threshold-rule" key={rule.period}>
+                          <div>
+                            <strong>{rule.label}</strong>
+                            <label className="admin-threshold-toggle">
+                              <input
+                                type="checkbox"
+                                aria-label={`Enable automatic suspension for ${rule.label}`}
+                                checked={rule.enabled}
+                                onChange={(event) => {
+                                  const enabled = event.target.checked;
+                                  setThresholdRules((current) =>
+                                    current.map((candidate) =>
+                                      candidate.period === rule.period
+                                        ? { ...candidate, enabled }
+                                        : candidate,
+                                    ),
+                                  );
+                                }}
+                              />
+                              <span>{rule.enabled ? "Enabled" : "Disabled"}</span>
+                            </label>
+                          </div>
+                          <label htmlFor={`agent-threshold-${rule.period}`}>
+                            Request limit
+                          </label>
+                          <input
+                            id={`agent-threshold-${rule.period}`}
+                            type="number"
+                            aria-label={`Request limit for ${rule.label}`}
+                            min="1"
+                            max="1000000"
+                            step="1"
+                            required
+                            value={rule.threshold}
+                            onChange={(event) => {
+                              const threshold = event.target.valueAsNumber;
+                              setThresholdRules((current) =>
+                                current.map((candidate) =>
+                                  candidate.period === rule.period
+                                    ? { ...candidate, threshold }
+                                    : candidate,
+                                ),
+                              );
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </fieldset>
+                </form>
               ) : null}
-            </div>
+            </>
           ) : null}
 
           {!loading && !errorMessage && accounts.length === 0 ? (
@@ -383,6 +532,19 @@ export function ApprovalDashboard() {
                         ? "Setup pending"
                         : account.status}
                     </span>
+                    {activeTab === "clients" && account.aiSuspension ? (
+                      <div className="admin-account-suspension" role="note">
+                        <strong>AI requests temporarily suspended</strong>
+                        <span>
+                          Access resumes {formattedSuspensionDate(account.aiSuspension.expiresAt)}
+                        </span>
+                        <p>
+                          {account.aiSuspension.observedRequestCount.toLocaleString("en-US")} AI
+                          requests in {account.aiSuspension.periodLabel} exceeded the configured
+                          limit of {account.aiSuspension.configuredThreshold.toLocaleString("en-US")}.
+                        </p>
+                      </div>
+                    ) : null}
                     {activeTab === "clients" ? (
                       <dl
                         className="admin-account-usage"

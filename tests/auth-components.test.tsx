@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountRequestForm } from "@/components/auth/account-request-form";
 import { LoginForm } from "@/components/auth/login-form";
@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   listEmployeeAccountRequests: vi.fn(),
   listEmployeeAccounts: vi.fn(),
+  getEmployeeAgentUsageThresholds: vi.fn(),
+  updateEmployeeAgentUsageThresholds: vi.fn(),
   removeClientAccount: vi.fn(),
   submitAccountRequest: vi.fn(),
   decideAccountRequest: vi.fn(),
@@ -34,10 +36,40 @@ vi.mock("@/lib/client/auth-api", () => ({
   submitAccountRequest: mocks.submitAccountRequest,
   listEmployeeAccountRequests: mocks.listEmployeeAccountRequests,
   listEmployeeAccounts: mocks.listEmployeeAccounts,
+  getEmployeeAgentUsageThresholds: mocks.getEmployeeAgentUsageThresholds,
+  updateEmployeeAgentUsageThresholds: mocks.updateEmployeeAgentUsageThresholds,
   removeClientAccount: mocks.removeClientAccount,
   decideAccountRequest: mocks.decideAccountRequest,
   resendSetupEmail: mocks.resendSetupEmail,
 }));
+
+const thresholdRules = [
+  { period: "last_15_minutes", label: "Last 15 minutes" },
+  { period: "last_1_hour", label: "Last 1 hour" },
+  { period: "last_6_hours", label: "Last 6 hours" },
+  { period: "last_12_hours", label: "Last 12 hours" },
+  { period: "last_24_hours", label: "Last 24 hours" },
+].map((rule) => ({
+  ...rule,
+  enabled: false,
+  threshold: 100,
+  updatedAt: 1_800_000_000,
+  updatedBy: null,
+}));
+
+beforeEach(() => {
+  mocks.getEmployeeAgentUsageThresholds.mockResolvedValue({
+    rules: thresholdRules.map((rule) => ({ ...rule })),
+  });
+  mocks.updateEmployeeAgentUsageThresholds.mockImplementation(
+    async ({ rules }: { rules: Array<{ period: string; enabled: boolean; threshold: number }> }) => ({
+      rules: thresholdRules.map((rule) => ({
+        ...rule,
+        ...rules.find(({ period }) => period === rule.period),
+      })),
+    }),
+  );
+});
 
 afterEach(() => {
   cleanup();
@@ -340,6 +372,82 @@ describe("account request and employee summary UI", () => {
         "last_15_minutes",
       );
     });
+  });
+
+  it("edits independent suspension thresholds and shows an active client expiry", async () => {
+    const user = userEvent.setup();
+    mocks.listEmployeeAccountRequests.mockResolvedValue({
+      requests: [],
+      summary: { employeeAccounts: 1, clientAccounts: 1 },
+    });
+    mocks.listEmployeeAccounts.mockResolvedValue({
+      accounts: [
+        {
+          id: "client-suspended",
+          email: "suspended@example.test",
+          fullName: "Suspended Client",
+          role: "client",
+          status: "active",
+          createdAt: 1,
+          reviewRequestCount: 3,
+          rewriteRequestCount: 1,
+          periodRequestCount: 4,
+          periodReviewRequestCount: 3,
+          periodRewriteRequestCount: 1,
+          aiSuspension: {
+            id: "suspension-1",
+            startedAt: 1_800_000_000,
+            expiresAt: 1_800_021_600,
+            triggeredPeriod: "last_15_minutes",
+            periodLabel: "Last 15 minutes",
+            configuredThreshold: 3,
+            observedRequestCount: 4,
+          },
+        },
+      ],
+      summary: { employeeAccounts: 1, clientAccounts: 1 },
+      usagePeriod: {
+        period: "lifetime",
+        label: "Lifetime",
+        startAt: null,
+        endAt: 1_800_000_000,
+        timeZone: "Asia/Hong_Kong",
+        trackingStartedAt: 1_700_000_000,
+        isComplete: true,
+      },
+    });
+
+    render(<ApprovalDashboard />);
+    await user.click(await screen.findByRole("tab", { name: "Client Accounts" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Six-hour AI usage suspension" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(5);
+    expect(screen.getByText("AI requests temporarily suspended")).toBeTruthy();
+    expect(screen.getByText(/Access resumes/u).textContent).toMatch(/HKT|GMT\+8/u);
+    expect(screen.getByText(/4 AI requests in Last 15 minutes/u)).toBeTruthy();
+
+    await user.click(screen.getAllByRole("checkbox")[0]);
+    const firstThreshold = document.querySelector(
+      "#agent-threshold-last_15_minutes",
+    ) as HTMLInputElement;
+    await user.clear(firstThreshold);
+    await user.type(firstThreshold, "3");
+    await user.click(screen.getByRole("button", { name: "Save thresholds" }));
+
+    expect(mocks.updateEmployeeAgentUsageThresholds).toHaveBeenCalledWith({
+      rules: expect.arrayContaining([
+        {
+          period: "last_15_minutes",
+          enabled: true,
+          threshold: 3,
+        },
+      ]),
+    });
+    expect(
+      await screen.findByText("Automatic AI usage suspension thresholds were saved."),
+    ).toBeTruthy();
   });
 
   it("cancels client removal without calling the API", async () => {

@@ -4,6 +4,7 @@ import { POST as reviewRoute } from "@/app/api/review/route";
 import { POST as rewriteRoute } from "@/app/api/rewrite/route";
 import { POST as directRewriteRoute } from "@/app/api/rewrite/direct/route";
 import { recordAgentRequestAttempt } from "@/lib/server/auth/request-usage";
+import { AppError } from "@/lib/server/errors";
 import {
   MAX_DRAFT_CHARS,
   MAX_REQUEST_BYTES,
@@ -281,6 +282,50 @@ describe("review and rewrite API routes", () => {
 
     expect(response.status).toBe(400);
     expect(recordAgentRequestAttempt).not.toHaveBeenCalled();
+  });
+
+  it("blocks a suspended client before making an AI provider request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(recordAgentRequestAttempt).mockRejectedValueOnce(
+      new AppError(
+        "ACCOUNT_TEMPORARILY_SUSPENDED",
+        "This account is temporarily suspended from making AI requests.",
+        429,
+        {
+          publicDetails: {
+            retryable: false,
+            suspensionStartedAt: 1_800_000_000,
+            suspensionExpiresAt: 1_800_021_600,
+            suspensionPeriod: "last_15_minutes",
+            suspensionThreshold: 3,
+            suspensionObservedCount: 4,
+          },
+        },
+      ),
+    );
+
+    const response = await reviewRoute(
+      request(
+        "/api/review",
+        JSON.stringify({ draft: "A complete valid draft for suspension enforcement." }),
+      ),
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "ACCOUNT_TEMPORARILY_SUSPENDED",
+        message: "This account is temporarily suspended from making AI requests.",
+        retryable: false,
+        suspensionStartedAt: 1_800_000_000,
+        suspensionExpiresAt: 1_800_021_600,
+        suspensionPeriod: "last_15_minutes",
+        suspensionThreshold: 3,
+        suspensionObservedCount: 4,
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("forwards refinement history and the latest length preference to the Rewrite Agent", async () => {

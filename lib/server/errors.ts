@@ -1,4 +1,5 @@
 import type { QuotationIssue } from "@/lib/shared/contracts";
+import type { AgentSuspensionPeriod } from "@/lib/shared/agent-usage";
 
 export interface PublicErrorDetails {
   details?: string[];
@@ -12,6 +13,11 @@ export interface PublicErrorDetails {
   candidateText?: string;
   attempts?: number;
   debugId?: string;
+  suspensionStartedAt?: number;
+  suspensionExpiresAt?: number;
+  suspensionPeriod?: AgentSuspensionPeriod;
+  suspensionThreshold?: number;
+  suspensionObservedCount?: number;
 }
 
 interface AppErrorOptions extends ErrorOptions {

@@ -5,6 +5,8 @@ import type {
   AccountRequestView,
   AccountRoleSummary,
   AgentUsagePeriodView,
+  AgentUsageThresholdRuleView,
+  AgentUsageThresholdUpdateInput,
   AuthApiErrorBody,
   AuthenticatedUser,
   ClientRemovalAuditView,
@@ -229,6 +231,29 @@ export function listEmployeeAccounts(
   }>(`/api/employee/accounts?role=${encodeURIComponent(role)}&usagePeriod=${encodeURIComponent(usagePeriod)}`, {
     method: "GET",
   });
+}
+
+export function getEmployeeAgentUsageThresholds() {
+  return requestJson<{ rules: AgentUsageThresholdRuleView[] }>(
+    "/api/employee/agent-usage-thresholds",
+    { method: "GET" },
+  );
+}
+
+export function updateEmployeeAgentUsageThresholds(
+  input: AgentUsageThresholdUpdateInput,
+) {
+  return requestJson<{ rules: AgentUsageThresholdRuleView[] }>(
+    "/api/employee/agent-usage-thresholds",
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export function removeClientAccount(id: string, input: ClientRemovalInput) {

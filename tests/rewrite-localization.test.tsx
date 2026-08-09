@@ -184,6 +184,40 @@ describe("Rewrite–Review localization", () => {
     expect(screen.queryByText(/English provider diagnostic/u)).toBeNull();
   });
 
+  it("shows a localized suspension reason and exact Hong Kong expiry time", async () => {
+    reviewMock.mockRejectedValue(
+      new ApiRequestError(
+        "ACCOUNT_TEMPORARILY_SUSPENDED",
+        "This English suspension message must not be shown.",
+        {
+          retryable: false,
+          suspensionStartedAt: 1_800_000_000,
+          suspensionExpiresAt: 1_800_021_600,
+          suspensionPeriod: "last_15_minutes",
+          suspensionThreshold: 3,
+          suspensionObservedCount: 4,
+        },
+      ),
+    );
+    window.localStorage.setItem(REWRITE_LOCALE_STORAGE_KEY, "zh-HK");
+    const user = userEvent.setup();
+    renderPage();
+
+    const editor = await screen.findByRole("textbox", { name: /新聞草稿/u });
+    await user.type(editor, "這是一篇用於測試暫停狀態的完整新聞草稿。 ");
+    await user.click(screen.getByRole("button", { name: "審閱草稿" }));
+
+    const message = await screen.findByText((content) =>
+      content.includes("過去 15 分鐘") &&
+      content.includes("4 次要求") &&
+      content.includes("3 次上限") &&
+      content.includes("GMT+8"),
+    );
+    expect(message.textContent).toContain("暫停使用 AI 要求");
+    expect(message.textContent).toContain("恢復");
+    expect(screen.queryByText(/English suspension message/u)).toBeNull();
+  });
+
   it("localizes deterministic quotation errors while preserving quoted and candidate text", async () => {
     window.localStorage.setItem(REWRITE_LOCALE_STORAGE_KEY, "zh-HK");
     render(

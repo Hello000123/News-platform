@@ -4,7 +4,9 @@ import { createId, nowInSeconds } from "@/lib/server/auth/crypto";
 import { isUniqueConstraintError } from "@/lib/server/auth/database";
 import { AppError } from "@/lib/server/errors";
 import {
+  agentUsagePeriodLabel,
   DEFAULT_AGENT_USAGE_PERIOD,
+  isAgentSuspensionPeriod,
   resolveAgentUsageWindow,
   type AgentUsagePeriod,
 } from "@/lib/shared/agent-usage";
@@ -68,6 +70,12 @@ interface AccountListUserRow {
   period_request_count?: number | null;
   period_review_request_count?: number | null;
   period_rewrite_request_count?: number | null;
+  ai_suspension_id?: string | null;
+  ai_suspended_at?: number | null;
+  ai_suspended_until?: number | null;
+  ai_suspension_period?: string | null;
+  ai_suspension_threshold?: number | null;
+  ai_suspension_observed_count?: number | null;
 }
 
 export interface UserAuthRow {
@@ -122,7 +130,17 @@ function mapAccountRequest(
   };
 }
 
-function mapAccountListUser(row: AccountListUserRow): AccountListUserView {
+function mapAccountListUser(
+  row: AccountListUserRow,
+  nowSeconds = nowInSeconds(),
+): AccountListUserView {
+  const hasActiveSuspension =
+    Boolean(row.ai_suspension_id) &&
+    Number(row.ai_suspended_until ?? 0) > nowSeconds &&
+    isAgentSuspensionPeriod(row.ai_suspension_period) &&
+    Number(row.ai_suspended_at ?? -1) >= 0 &&
+    Number(row.ai_suspension_threshold ?? 0) > 0 &&
+    Number(row.ai_suspension_observed_count ?? 0) > 0;
   return {
     id: row.id,
     email: row.email,
@@ -135,6 +153,23 @@ function mapAccountListUser(row: AccountListUserRow): AccountListUserView {
     periodRequestCount: Number(row.period_request_count ?? 0),
     periodReviewRequestCount: Number(row.period_review_request_count ?? 0),
     periodRewriteRequestCount: Number(row.period_rewrite_request_count ?? 0),
+    aiSuspension: hasActiveSuspension
+      ? {
+          id: row.ai_suspension_id as string,
+          startedAt: Number(row.ai_suspended_at),
+          expiresAt: Number(row.ai_suspended_until),
+          triggeredPeriod: row.ai_suspension_period as NonNullable<
+            AccountListUserView["aiSuspension"]
+          >["triggeredPeriod"],
+          periodLabel: agentUsagePeriodLabel(
+            row.ai_suspension_period as NonNullable<
+              AccountListUserView["aiSuspension"]
+            >["triggeredPeriod"],
+          ),
+          configuredThreshold: Number(row.ai_suspension_threshold),
+          observedRequestCount: Number(row.ai_suspension_observed_count),
+        }
+      : null,
   };
 }
 
@@ -423,6 +458,12 @@ export async function listUserAccounts(
        account.role,
        account.status,
        account.created_at,
+       account.ai_suspension_id,
+       account.ai_suspended_at,
+       account.ai_suspended_until,
+       account.ai_suspension_period,
+       account.ai_suspension_threshold,
+       account.ai_suspension_observed_count,
        COALESCE(usage.review_request_count, 0) AS review_request_count,
        COALESCE(usage.rewrite_request_count, 0) AS rewrite_request_count,
        ${periodRequestCount} AS period_request_count,
@@ -439,7 +480,7 @@ export async function listUserAccounts(
     ? prepared.bind(role)
     : prepared.bind(usageWindow.startAt, usageWindow.endAt, role);
   const result = await statement.all<AccountListUserRow>();
-  return result.results.map(mapAccountListUser);
+  return result.results.map((row) => mapAccountListUser(row, nowSeconds));
 }
 
 export async function getActiveClientAccount(
@@ -448,7 +489,19 @@ export async function getActiveClientAccount(
 ) {
   const row = await database
     .prepare(
-      `SELECT id, email, full_name, role, status, created_at
+      `SELECT
+         id,
+         email,
+         full_name,
+         role,
+         status,
+         created_at,
+         ai_suspension_id,
+         ai_suspended_at,
+         ai_suspended_until,
+         ai_suspension_period,
+         ai_suspension_threshold,
+         ai_suspension_observed_count
        FROM users
        WHERE id = ? AND role = 'client' AND status <> 'disabled'
        LIMIT 1`,

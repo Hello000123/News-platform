@@ -319,6 +319,19 @@ export const apiErrorResponseSchema = z
         message: z.string(),
         details: z.array(z.string()).optional(),
         retryable: z.boolean().optional(),
+        suspensionStartedAt: z.number().int().nonnegative().optional(),
+        suspensionExpiresAt: z.number().int().positive().optional(),
+        suspensionPeriod: z
+          .enum([
+            "last_15_minutes",
+            "last_1_hour",
+            "last_6_hours",
+            "last_12_hours",
+            "last_24_hours",
+          ])
+          .optional(),
+        suspensionThreshold: z.number().int().positive().optional(),
+        suspensionObservedCount: z.number().int().positive().optional(),
         stage: z.enum(["review_request", "rewrite_request"]).optional(),
         provider: z.string().trim().min(1).max(80).optional(),
         model: z.string().trim().min(1).max(120).optional(),

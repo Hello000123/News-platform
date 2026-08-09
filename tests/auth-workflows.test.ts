@@ -32,6 +32,10 @@ import { GET as getEmployeeAttachment } from "@/app/api/employee/account-request
 import { GET as listEmployeeRequests } from "@/app/api/employee/account-requests/route";
 import { POST as removeEmployeeClient } from "@/app/api/employee/accounts/[id]/remove/route";
 import { GET as listEmployeeAccounts } from "@/app/api/employee/accounts/route";
+import {
+  GET as getAgentUsageThresholds,
+  PUT as updateAgentUsageThresholds,
+} from "@/app/api/employee/agent-usage-thresholds/route";
 import { POST as reviewDraft } from "@/app/api/review/route";
 import { POST as extractDraftFile } from "@/app/api/uploads/extract/route";
 import { hashPassword, nowInSeconds } from "@/lib/server/auth/crypto";
@@ -273,9 +277,32 @@ function tokenFromPreviewUrl(url: string) {
 }
 
 async function executeSqlScript(sql: string) {
-  for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean)) {
-    await database.prepare(statement).run();
+  let pending = "";
+  let insideTrigger = false;
+  const statements: string[] = [];
+  for (const line of sql.replace(/\r/gu, "").split("\n")) {
+    if (!insideTrigger && /^\s*CREATE\s+TRIGGER\b/iu.test(line)) {
+      insideTrigger = true;
+    }
+    pending += `${pending ? "\n" : ""}${line}`;
+    if (insideTrigger) {
+      if (/^\s*END;\s*$/iu.test(line)) {
+        statements.push(pending.trim());
+        pending = "";
+        insideTrigger = false;
+      }
+      continue;
+    }
+    let separator = pending.indexOf(";");
+    while (separator >= 0) {
+      const statement = pending.slice(0, separator).trim();
+      if (statement) statements.push(statement);
+      pending = pending.slice(separator + 1);
+      separator = pending.indexOf(";");
+    }
   }
+  if (pending.trim()) statements.push(pending.trim());
+  for (const statement of statements) await database.prepare(statement).run();
 }
 
 beforeAll(async () => {
@@ -313,6 +340,15 @@ beforeEach(async () => {
   vi.stubEnv("EMAIL_DELIVERY_MODE", "preview");
   vi.stubEnv("ACCOUNT_APPROVAL_NOTIFICATION_EMAIL", "notifications@example.test");
   await executeSqlScript(`
+    DELETE FROM agent_usage_suspension_audit_records;
+    DELETE FROM agent_usage_threshold_audit_records;
+    DELETE FROM agent_request_events;
+    DELETE FROM agent_request_usage;
+    UPDATE agent_usage_thresholds
+    SET enabled = 0,
+        request_limit = 100,
+        updated_at = 0,
+        updated_by_user_id = NULL;
     DELETE FROM client_removal_audit_records;
     DELETE FROM email_delivery_records;
     DELETE FROM approval_audit_records;
@@ -909,6 +945,136 @@ describe("account authentication and approval workflows", () => {
     expect(await refreshed.json()).toMatchObject({
       accounts: [],
       summary: { employeeAccounts: 1, clientAccounts: 0 },
+    });
+  });
+
+  it("restricts, validates, persists, and audits automatic suspension thresholds", async () => {
+    const employeeAuth = await employeeAuthentication();
+    await insertUser({
+      id: "client-threshold-config",
+      email: "threshold-client@example.test",
+      fullName: "Threshold Client",
+      role: "client",
+      passwordHash: clientHash,
+    });
+    const clientLogin = await loginAs(
+      "threshold-client@example.test",
+      CLIENT_PASSWORD,
+    );
+    expect(clientLogin.response.status).toBe(200);
+
+    expect(
+      (await getAgentUsageThresholds(getRequest("/api/employee/agent-usage-thresholds"))).status,
+    ).toBe(401);
+    expect(
+      (
+        await getAgentUsageThresholds(
+          getRequest(
+            "/api/employee/agent-usage-thresholds",
+            clientLogin.authentication.cookie,
+          ),
+        )
+      ).status,
+    ).toBe(403);
+
+    const clientUpdate = await updateAgentUsageThresholds(
+      new Request(`${ORIGIN}/api/employee/agent-usage-thresholds`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: ORIGIN,
+          Cookie: clientLogin.authentication.cookie,
+          "X-CSRF-Token": clientLogin.authentication.csrf,
+        },
+        body: JSON.stringify({ rules: [] }),
+      }),
+    );
+    expect(clientUpdate.status).toBe(403);
+
+    const initial = await getAgentUsageThresholds(
+      getRequest(
+        "/api/employee/agent-usage-thresholds",
+        employeeAuth.cookie,
+      ),
+    );
+    expect(initial.status).toBe(200);
+    expect(await initial.json()).toMatchObject({
+      rules: [
+        { period: "last_15_minutes", enabled: false, threshold: 100 },
+        { period: "last_1_hour", enabled: false, threshold: 100 },
+        { period: "last_6_hours", enabled: false, threshold: 100 },
+        { period: "last_12_hours", enabled: false, threshold: 100 },
+        { period: "last_24_hours", enabled: false, threshold: 100 },
+      ],
+    });
+
+    const invalid = await updateAgentUsageThresholds(
+      new Request(`${ORIGIN}/api/employee/agent-usage-thresholds`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: ORIGIN,
+          Cookie: employeeAuth.cookie,
+          "X-CSRF-Token": employeeAuth.csrf,
+        },
+        body: JSON.stringify({
+          rules: [
+            { period: "last_15_minutes", enabled: true, threshold: 0 },
+            { period: "last_1_hour", enabled: false, threshold: 2.5 },
+            { period: "last_6_hours", enabled: false, threshold: 100 },
+            { period: "last_12_hours", enabled: false, threshold: 100 },
+            { period: "last_24_hours", enabled: false, threshold: 100 },
+          ],
+        }),
+      }),
+    );
+    expect(invalid.status).toBe(400);
+
+    const rules = [
+      { period: "last_15_minutes", enabled: true, threshold: 3 },
+      { period: "last_1_hour", enabled: true, threshold: 12 },
+      { period: "last_6_hours", enabled: false, threshold: 50 },
+      { period: "last_12_hours", enabled: false, threshold: 80 },
+      { period: "last_24_hours", enabled: true, threshold: 120 },
+    ];
+    const updated = await updateAgentUsageThresholds(
+      new Request(`${ORIGIN}/api/employee/agent-usage-thresholds`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: ORIGIN,
+          Cookie: employeeAuth.cookie,
+          "X-CSRF-Token": employeeAuth.csrf,
+        },
+        body: JSON.stringify({ rules }),
+      }),
+    );
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ rules });
+    expect(
+      await database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM agent_usage_threshold_audit_records
+           WHERE actor_user_id = 'employee-1'`,
+        )
+        .first<{ count: number }>(),
+    ).toEqual({ count: 5 });
+    expect(
+      await database
+        .prepare(
+          `SELECT period, previous_enabled, previous_request_limit,
+                  new_enabled, new_request_limit
+           FROM agent_usage_threshold_audit_records
+           WHERE actor_user_id = 'employee-1' AND period = 'last_15_minutes'`,
+        )
+        .first(),
+    ).toEqual({
+      period: "last_15_minutes",
+      previous_enabled: 0,
+      previous_request_limit: 100,
+      new_enabled: 1,
+      new_request_limit: 3,
     });
   });
 

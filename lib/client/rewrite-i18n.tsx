@@ -136,6 +136,15 @@ const EN_MESSAGES = {
     "The generated rewrite did not pass the required safety checks. Retry the rewrite.",
   sessionExpired: "Your session has expired. Sign in again and retry.",
   forbidden: "You do not have permission to complete this request.",
+  accountSuspended:
+    "Your account is temporarily suspended from AI requests because {observed} requests in {period} exceeded the configured limit of {threshold}. AI access resumes at {expiresAt}.",
+  accountSuspendedGeneric:
+    "Your account is temporarily suspended from making AI requests. Check the expiry time and try again later.",
+  suspensionLast15Minutes: "the last 15 minutes",
+  suspensionLast1Hour: "the last hour",
+  suspensionLast6Hours: "the last 6 hours",
+  suspensionLast12Hours: "the last 12 hours",
+  suspensionLast24Hours: "the last 24 hours",
   requestFailedGeneric: "The request could not be completed. Please try again.",
   diagnosticCauseGeneric:
     "The provider reported a request failure. Check the selected model and account access.",
@@ -357,6 +366,15 @@ const ZH_HK_MESSAGES: Record<RewriteMessageKey, string> = {
   rewriteValidationFailed: "產生的改寫版本未通過必要安全檢查，請重試改寫。",
   sessionExpired: "工作階段已過期。請重新登入後再試。",
   forbidden: "你沒有權限完成此要求。",
+  accountSuspended:
+    "你的帳戶已暫停使用 AI 要求，原因是{period}內錄得 {observed} 次要求，超過已設定的 {threshold} 次上限。AI 使用權將於 {expiresAt} 恢復。",
+  accountSuspendedGeneric:
+    "你的帳戶已暫停使用 AI 要求。請查看暫停屆滿時間，並於稍後再試。",
+  suspensionLast15Minutes: "過去 15 分鐘",
+  suspensionLast1Hour: "過去 1 小時",
+  suspensionLast6Hours: "過去 6 小時",
+  suspensionLast12Hours: "過去 12 小時",
+  suspensionLast24Hours: "過去 24 小時",
   requestFailedGeneric: "未能完成要求，請再試一次。",
   diagnosticCauseGeneric: "供應商回報要求失敗。請檢查所選模型及帳戶權限。",
   uploadCombinedLimit: "所有已選檔案的合計大小不可超過 10 MB。",
