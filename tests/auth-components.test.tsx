@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -209,9 +209,21 @@ describe("account request and employee summary UI", () => {
           createdAt: 1,
           reviewRequestCount: 12,
           rewriteRequestCount: 34,
+          periodRequestCount: 46,
+          periodReviewRequestCount: 12,
+          periodRewriteRequestCount: 34,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
+      usagePeriod: {
+        period: "lifetime",
+        label: "Lifetime",
+        startAt: null,
+        endAt: 1_800_000_000,
+        timeZone: "Asia/Hong_Kong",
+        trackingStartedAt: 1_700_000_000,
+        isComplete: true,
+      },
     });
     mocks.removeClientAccount.mockResolvedValue({
       removedAccount: {
@@ -234,8 +246,12 @@ describe("account request and employee summary UI", () => {
     await user.click(screen.getByRole("tab", { name: "Client Accounts" }));
     expect(await screen.findByText("Client Person")).toBeTruthy();
     expect(screen.getByText("client@example.test")).toBeTruthy();
+    expect(screen.getByLabelText("AI usage period")).toHaveProperty("value", "lifetime");
+    expect(screen.getByText("Selected period: Lifetime")).toBeTruthy();
+    expect(screen.getByText("46")).toBeTruthy();
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("34")).toBeTruthy();
+    expect(mocks.listEmployeeAccounts).toHaveBeenCalledWith("client", "lifetime");
     await user.click(screen.getByRole("button", { name: "Remove account" }));
 
     expect(screen.getByRole("dialog").textContent).toContain(
@@ -268,6 +284,64 @@ describe("account request and employee summary UI", () => {
     ).toBeTruthy();
   });
 
+  it("reloads backend-aggregated client usage for the selected period", async () => {
+    const user = userEvent.setup();
+    mocks.listEmployeeAccountRequests.mockResolvedValue({
+      requests: [],
+      summary: { employeeAccounts: 1, clientAccounts: 1 },
+    });
+    mocks.listEmployeeAccounts.mockImplementation(
+      async (_role: "client" | "employee", period: string) => ({
+        accounts: [
+          {
+            id: "client-period",
+            email: "period@example.test",
+            fullName: "Period Client",
+            role: "client",
+            status: "active",
+            createdAt: 1,
+            reviewRequestCount: 30,
+            rewriteRequestCount: 16,
+            periodRequestCount: period === "last_15_minutes" ? 5 : 46,
+            periodReviewRequestCount: period === "last_15_minutes" ? 3 : 30,
+            periodRewriteRequestCount: period === "last_15_minutes" ? 2 : 16,
+          },
+        ],
+        summary: { employeeAccounts: 1, clientAccounts: 1 },
+        usagePeriod: {
+          period,
+          label: period === "last_15_minutes" ? "Last 15 minutes" : "Lifetime",
+          startAt: period === "last_15_minutes" ? 1_799_999_100 : null,
+          endAt: 1_800_000_000,
+          timeZone: "Asia/Hong_Kong",
+          trackingStartedAt: 1_799_999_700,
+          isComplete: period === "lifetime",
+        },
+      }),
+    );
+
+    render(<ApprovalDashboard />);
+    await user.click(await screen.findByRole("tab", { name: "Client Accounts" }));
+    expect(await screen.findByText("Period Client")).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("AI usage period"), "last_15_minutes");
+
+    expect(await screen.findByText("Selected period: Last 15 minutes")).toBeTruthy();
+    expect(screen.getByText(/Partial period data:/u).textContent).toContain(
+      "Earlier requests in this period cannot be reconstructed",
+    );
+    expect(screen.getByText("5")).toBeTruthy();
+    expect(screen.getByText("3")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("Lifetime total")).toBeTruthy();
+    expect(screen.getByText("46")).toBeTruthy();
+    await waitFor(() => {
+      expect(mocks.listEmployeeAccounts).toHaveBeenCalledWith(
+        "client",
+        "last_15_minutes",
+      );
+    });
+  });
+
   it("cancels client removal without calling the API", async () => {
     const user = userEvent.setup();
     mocks.listEmployeeAccountRequests.mockResolvedValue({
@@ -283,9 +357,23 @@ describe("account request and employee summary UI", () => {
           role: "client",
           status: "active",
           createdAt: 1,
+          reviewRequestCount: 0,
+          rewriteRequestCount: 0,
+          periodRequestCount: 0,
+          periodReviewRequestCount: 0,
+          periodRewriteRequestCount: 0,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
+      usagePeriod: {
+        period: "lifetime",
+        label: "Lifetime",
+        startAt: null,
+        endAt: 1_800_000_000,
+        timeZone: "Asia/Hong_Kong",
+        trackingStartedAt: 1_700_000_000,
+        isComplete: true,
+      },
     });
     render(<ApprovalDashboard />);
     await user.click(await screen.findByRole("tab", { name: "Client Accounts" }));

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { AgentUsagePeriod } from "@/lib/shared/agent-usage";
+
 export const USER_ROLES = ["client", "employee"] as const;
 export const USER_STATUSES = ["setup_pending", "active", "disabled"] as const;
 export const ACCOUNT_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
@@ -353,6 +355,19 @@ export interface AccountListUserView {
   createdAt: number;
   reviewRequestCount: number;
   rewriteRequestCount: number;
+  periodRequestCount: number;
+  periodReviewRequestCount: number;
+  periodRewriteRequestCount: number;
+}
+
+export interface AgentUsagePeriodView {
+  period: AgentUsagePeriod;
+  label: string;
+  startAt: number | null;
+  endAt: number;
+  timeZone: "Asia/Hong_Kong";
+  trackingStartedAt: number;
+  isComplete: boolean;
 }
 
 export interface ClientRemovalAuditView {

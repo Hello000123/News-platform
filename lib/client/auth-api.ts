@@ -4,6 +4,7 @@ import type {
   AccountRequestInput,
   AccountRequestView,
   AccountRoleSummary,
+  AgentUsagePeriodView,
   AuthApiErrorBody,
   AuthenticatedUser,
   ClientRemovalAuditView,
@@ -14,6 +15,10 @@ import type {
   PasswordSetupFormInput,
 } from "@/lib/shared/auth-contracts";
 import { derivePasswordProof } from "@/lib/client/password-proof";
+import {
+  DEFAULT_AGENT_USAGE_PERIOD,
+  type AgentUsagePeriod,
+} from "@/lib/shared/agent-usage";
 
 const CSRF_COOKIE_NAME = "pressready_csrf";
 
@@ -213,11 +218,15 @@ export function resendSetupEmail(id: string) {
   );
 }
 
-export function listEmployeeAccounts(role: "client" | "employee") {
+export function listEmployeeAccounts(
+  role: "client" | "employee",
+  usagePeriod: AgentUsagePeriod = DEFAULT_AGENT_USAGE_PERIOD,
+) {
   return requestJson<{
     accounts: AccountListUserView[];
     summary: AccountRoleSummary;
-  }>(`/api/employee/accounts?role=${encodeURIComponent(role)}`, {
+    usagePeriod: AgentUsagePeriodView;
+  }>(`/api/employee/accounts?role=${encodeURIComponent(role)}&usagePeriod=${encodeURIComponent(usagePeriod)}`, {
     method: "GET",
   });
 }

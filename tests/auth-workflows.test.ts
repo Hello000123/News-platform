@@ -718,7 +718,7 @@ describe("account authentication and approval workflows", () => {
 
     const clients = await listEmployeeAccounts(
       getRequest(
-        "/api/employee/accounts?role=client",
+        "/api/employee/accounts?role=client&usagePeriod=last_24_hours",
         employeeAuth.cookie,
       ),
     );
@@ -730,9 +730,30 @@ describe("account authentication and approval workflows", () => {
           fullName: "Removable Client",
           email: "remove-client@example.test",
           role: "client",
+          periodRequestCount: 0,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
+      usagePeriod: {
+        period: "last_24_hours",
+        label: "Last 24 hours",
+        startAt: expect.any(Number),
+        endAt: expect.any(Number),
+        timeZone: "Asia/Hong_Kong",
+        trackingStartedAt: expect.any(Number),
+        isComplete: expect.any(Boolean),
+      },
+    });
+
+    const invalidUsagePeriod = await listEmployeeAccounts(
+      getRequest(
+        "/api/employee/accounts?role=client&usagePeriod=last_week",
+        employeeAuth.cookie,
+      ),
+    );
+    expect(invalidUsagePeriod.status).toBe(400);
+    expect(await invalidUsagePeriod.json()).toMatchObject({
+      error: { code: "INVALID_USAGE_PERIOD" },
     });
 
     const employees = await listEmployeeAccounts(

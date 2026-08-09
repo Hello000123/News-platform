@@ -15,8 +15,14 @@ import type {
   AccountRoleSummary,
   AccountRequestStatus,
   AccountRequestView,
+  AgentUsagePeriodView,
   EmailDeliveryView,
 } from "@/lib/shared/auth-contracts";
+import {
+  AGENT_USAGE_PERIODS,
+  DEFAULT_AGENT_USAGE_PERIOD,
+  type AgentUsagePeriod,
+} from "@/lib/shared/agent-usage";
 
 type AdminTab = "approval" | "clients" | "employees" | "feeds";
 type Filter = AccountRequestStatus | "all";
@@ -55,6 +61,11 @@ export function ApprovalDashboard() {
   const [requests, setRequests] = useState<AccountRequestView[]>([]);
   const [accounts, setAccounts] = useState<AccountListUserView[]>([]);
   const [summary, setSummary] = useState<AccountRoleSummary | null>(null);
+  const [usagePeriod, setUsagePeriod] = useState<AgentUsagePeriod>(
+    DEFAULT_AGENT_USAGE_PERIOD,
+  );
+  const [usagePeriodView, setUsagePeriodView] =
+    useState<AgentUsagePeriodView | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState<{
@@ -77,7 +88,10 @@ export function ApprovalDashboard() {
     const request =
       activeTab === "approval"
         ? listEmployeeAccountRequests(filter === "all" ? undefined : filter)
-        : listEmployeeAccounts(activeTab === "clients" ? "client" : "employee");
+        : listEmployeeAccounts(
+            activeTab === "clients" ? "client" : "employee",
+            activeTab === "clients" ? usagePeriod : DEFAULT_AGENT_USAGE_PERIOD,
+          );
 
     request
       .then((result) => {
@@ -87,6 +101,7 @@ export function ApprovalDashboard() {
           setRequests(result.requests);
         } else {
           setAccounts(result.accounts);
+          setUsagePeriodView(result.usagePeriod);
         }
       })
       .catch((error) => {
@@ -105,7 +120,7 @@ export function ApprovalDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, filter, refreshVersion]);
+  }, [activeTab, filter, refreshVersion, usagePeriod]);
 
   function changeTab(tab: AdminTab) {
     if (tab === activeTab) return;
@@ -113,6 +128,7 @@ export function ApprovalDashboard() {
     setErrorMessage("");
     setAccounts([]);
     setRequests([]);
+    setUsagePeriodView(null);
     if (tab !== "feeds") setLoading(true);
     setActiveTab(tab);
   }
@@ -295,6 +311,57 @@ export function ApprovalDashboard() {
           role="tabpanel"
           aria-labelledby={`admin-tab-${activeTab}`}
         >
+          {activeTab === "clients" ? (
+            <div className="admin-usage-toolbar">
+              <div>
+                <label htmlFor="admin-usage-period">AI usage period</label>
+                <select
+                  id="admin-usage-period"
+                  value={usagePeriod}
+                  disabled={loading}
+                  onChange={(event) => {
+                    const nextPeriod = event.target.value as AgentUsagePeriod;
+                    if (nextPeriod === usagePeriod) return;
+                    setLoading(true);
+                    setErrorMessage("");
+                    setNotice(null);
+                    setAccounts([]);
+                    setUsagePeriodView(null);
+                    setUsagePeriod(nextPeriod);
+                  }}
+                >
+                  {AGENT_USAGE_PERIODS.map((period) => (
+                    <option value={period.key} key={period.key}>
+                      {period.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {usagePeriodView ? (
+                <div className="admin-usage-coverage" role="note">
+                  <strong>Selected period: {usagePeriodView.label}</strong>
+                  {usagePeriodView.period === "lifetime" ? (
+                    <p>
+                      Lifetime totals preserve requests recorded before timestamped tracking
+                      began.
+                    </p>
+                  ) : usagePeriodView.isComplete ? (
+                    <p>
+                      This window is fully covered by timestamped tracking. Earlier aggregate-only
+                      usage remains available under Lifetime.
+                    </p>
+                  ) : (
+                    <p>
+                      Partial period data: timestamped tracking began{" "}
+                      {formattedDate(usagePeriodView.trackingStartedAt)}. Earlier requests in this
+                      period cannot be reconstructed; their lifetime totals remain preserved.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {!loading && !errorMessage && accounts.length === 0 ? (
             <div className="employee-empty">
               <strong>
@@ -317,15 +384,43 @@ export function ApprovalDashboard() {
                         : account.status}
                     </span>
                     {activeTab === "clients" ? (
-                      <dl className="admin-account-usage" aria-label={`${account.fullName} AI request usage`}>
+                      <dl
+                        className="admin-account-usage"
+                        aria-label={`${account.fullName} ${
+                          usagePeriodView?.label ?? "selected period"
+                        } AI request usage`}
+                      >
+                        <div>
+                          <dt>
+                            Total AI requests ·{" "}
+                            {usagePeriodView?.label ?? "Selected period"}
+                          </dt>
+                          <dd>
+                            {account.periodRequestCount.toLocaleString("en-US")}
+                          </dd>
+                        </div>
                         <div>
                           <dt>Review requests</dt>
-                          <dd>{(account.reviewRequestCount ?? 0).toLocaleString("en-US")}</dd>
+                          <dd>
+                            {account.periodReviewRequestCount.toLocaleString("en-US")}
+                          </dd>
                         </div>
                         <div>
                           <dt>Rewrite requests</dt>
-                          <dd>{(account.rewriteRequestCount ?? 0).toLocaleString("en-US")}</dd>
+                          <dd>
+                            {account.periodRewriteRequestCount.toLocaleString("en-US")}
+                          </dd>
                         </div>
+                        {usagePeriod !== "lifetime" ? (
+                          <div>
+                            <dt>Lifetime total</dt>
+                            <dd>
+                              {(
+                                account.reviewRequestCount + account.rewriteRequestCount
+                              ).toLocaleString("en-US")}
+                            </dd>
+                          </div>
+                        ) : null}
                       </dl>
                     ) : null}
                   </div>

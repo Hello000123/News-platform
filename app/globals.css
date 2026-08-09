@@ -2305,6 +2305,56 @@ footer p {
   gap: 12px;
 }
 
+.admin-usage-toolbar {
+  display: flex;
+  margin-bottom: 16px;
+  padding: 17px 18px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow-small);
+}
+
+.admin-usage-toolbar > div:first-child {
+  display: grid;
+  min-width: min(260px, 100%);
+  gap: 6px;
+}
+
+.admin-usage-toolbar label {
+  color: var(--ink-strong);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.admin-usage-toolbar select {
+  min-height: 44px;
+  padding: 8px 36px 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink-strong);
+}
+
+.admin-usage-coverage {
+  max-width: 560px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-usage-coverage strong {
+  color: var(--ink-strong);
+  font-size: 13px;
+}
+
+.admin-usage-coverage p {
+  margin: 3px 0 0;
+}
+
 .admin-account-row {
   display: flex;
   min-width: 0;
@@ -2841,6 +2891,16 @@ footer p {
 
   .admin-account-usage > div {
     min-width: 0;
+  }
+
+  .admin-usage-toolbar {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .admin-usage-toolbar > div:first-child,
+  .admin-usage-toolbar select {
+    width: 100%;
   }
 
   .admin-tabs {

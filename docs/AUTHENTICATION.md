@@ -10,8 +10,8 @@ website is intentionally outside this implementation.
   surface.
 - `@opennextjs/cloudflare` packages the application as a Cloudflare Worker.
 - Cloudflare D1 stores account requests, users, password setup tokens,
-  sessions, approval/removal audits, login-rate buckets, and email-delivery
-  metadata.
+  sessions, approval/removal audits, login-rate buckets, AI-request lifetime
+  counters and timestamped events, and email-delivery metadata.
 - A private Cloudflare R2 bucket stores optional account supporting documents
   under opaque object keys. D1 stores only the attachment metadata and
   ownership link. The Worker exposes the bytes only after an employee-role
@@ -46,9 +46,15 @@ adds immutable client-removal audit records without changing or deleting any
 existing user.
 [`migrations/0004_account_request_attachments.sql`](../migrations/0004_account_request_attachments.sql)
 adds the D1 metadata and ownership table for private R2 account documents.
+[`migrations/0005_agent_request_usage.sql`](../migrations/0005_agent_request_usage.sql)
+stores the preserved per-user lifetime review and rewrite counters.
 [`migrations/0015_multiple_account_request_attachments.sql`](../migrations/0015_multiple_account_request_attachments.sql)
 preserves existing attachment rows and changes the ownership relationship to
 one-to-many.
+[`migrations/0016_timestamped_agent_request_events.sql`](../migrations/0016_timestamped_agent_request_events.sql)
+starts timestamped request-attempt tracking and adds indexes for per-user and
+cross-user time-window aggregation. It deliberately does not backfill events
+from the lifetime counters because no reliable historical timestamps exist.
 Times are stored as Unix seconds in UTC.
 
 ### Hosted-runtime password compatibility
@@ -96,6 +102,9 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
 7. Logout revokes the D1 session, expires both cookies, requests cache clearing,
    and redirects to `/login`.
 8. The Admin Panel separates approvals, client accounts, and employee accounts.
+   Client Accounts offers backend-aggregated rolling usage periods, Hong Kong
+   month/year-to-date periods, and preserved lifetime totals. A range that
+   starts before timestamped tracking is explicitly marked partial.
    Removing a client deactivates the user, clears the password hash, revokes all
    sessions, invalidates unused setup tokens, stores an audit record, and sends
    the administrator's message to the client. Employee removal is not exposed.
@@ -314,6 +323,8 @@ the migration SQL. It covers:
 - complete requests, requests with every optional field blank, administrator
   message normalization, database null storage, and notification fallbacks;
 - employee Admin Panel list access and client `403`;
+- deterministic rolling and `Asia/Hong_Kong` calendar usage windows, indexed
+  event aggregation, partial-history metadata, and preserved lifetime totals;
 - live employee/client role totals after approval, role change, and deletion;
 - separate client/employee account lists, required two-stage client-removal
   confirmation, session revocation, disabled login, email status, and immutable

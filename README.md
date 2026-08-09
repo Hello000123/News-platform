@@ -464,6 +464,16 @@ use Cloudflare D1 and Worker-compatible cryptography. The Admin Panel is
 available only to the `employee` role and separates account approvals, client
 accounts, and employee accounts.
 
+The Client Accounts tab aggregates AI-request usage on the backend for rolling
+windows from 15 minutes through 365 days, Hong Kong month-to-date and
+year-to-date windows, and Lifetime. Review and rewrite attempts are recorded at
+the same pre-provider point as the original lifetime counters. Migration
+`0016_timestamped_agent_request_events.sql` starts timestamped tracking and
+adds user/time indexes; it does not fabricate timestamps for older requests.
+Existing aggregate lifetime totals remain intact. Consequently, a time range
+that begins before the migration is marked as partial in the Admin Panel,
+while Lifetime still includes those earlier aggregate-only requests.
+
 Passwords must contain 9–63 English keyboard characters. No uppercase,
 lowercase, number, symbol, or character-combination rule is imposed. Passwords
 use scrypt (`N=32768`, `r=8`, `p=3`) in the browser or employee CLI. D1 stores

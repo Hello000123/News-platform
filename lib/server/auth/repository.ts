@@ -3,6 +3,11 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { createId, nowInSeconds } from "@/lib/server/auth/crypto";
 import { isUniqueConstraintError } from "@/lib/server/auth/database";
 import { AppError } from "@/lib/server/errors";
+import {
+  DEFAULT_AGENT_USAGE_PERIOD,
+  resolveAgentUsageWindow,
+  type AgentUsagePeriod,
+} from "@/lib/shared/agent-usage";
 import type {
   AccountRequestInput,
   AccountRequestAttachmentView,
@@ -60,6 +65,9 @@ interface AccountListUserRow {
   created_at: number;
   review_request_count?: number | null;
   rewrite_request_count?: number | null;
+  period_request_count?: number | null;
+  period_review_request_count?: number | null;
+  period_rewrite_request_count?: number | null;
 }
 
 export interface UserAuthRow {
@@ -124,6 +132,9 @@ function mapAccountListUser(row: AccountListUserRow): AccountListUserView {
     createdAt: row.created_at,
     reviewRequestCount: Number(row.review_request_count ?? 0),
     rewriteRequestCount: Number(row.rewrite_request_count ?? 0),
+    periodRequestCount: Number(row.period_request_count ?? 0),
+    periodReviewRequestCount: Number(row.period_review_request_count ?? 0),
+    periodRewriteRequestCount: Number(row.period_rewrite_request_count ?? 0),
   };
 }
 
@@ -371,26 +382,63 @@ export async function getAccountRoleSummary(database: D1Database) {
 export async function listUserAccounts(
   database: D1Database,
   role: UserRole,
+  options: {
+    usagePeriod?: AgentUsagePeriod;
+    nowSeconds?: number;
+  } = {},
 ) {
-  const result = await database
-    .prepare(
-      `SELECT
-         account.id,
-         account.email,
-         account.full_name,
-         account.role,
-         account.status,
-         account.created_at,
-         COALESCE(usage.review_request_count, 0) AS review_request_count,
-         COALESCE(usage.rewrite_request_count, 0) AS rewrite_request_count
-       FROM users AS account
-       LEFT JOIN agent_request_usage AS usage ON usage.user_id = account.id
-       WHERE account.role = ? AND account.status <> 'disabled'
-       ORDER BY account.full_name COLLATE NOCASE, account.email COLLATE NOCASE
-       LIMIT 500`,
-    )
-    .bind(role)
-    .all<AccountListUserRow>();
+  const nowSeconds = options.nowSeconds ?? nowInSeconds();
+  const usageWindow = resolveAgentUsageWindow(
+    options.usagePeriod ?? DEFAULT_AGENT_USAGE_PERIOD,
+    nowSeconds,
+  );
+  const periodUsageJoin = usageWindow.startAt === null
+    ? ""
+    : `LEFT JOIN (
+         SELECT
+           user_id,
+           COUNT(*) AS request_count,
+           SUM(CASE WHEN request_kind = 'review' THEN 1 ELSE 0 END)
+             AS review_request_count,
+           SUM(CASE WHEN request_kind = 'rewrite' THEN 1 ELSE 0 END)
+             AS rewrite_request_count
+         FROM agent_request_events
+         WHERE attempted_at >= ? AND attempted_at <= ?
+         GROUP BY user_id
+       ) AS period_usage ON period_usage.user_id = account.id`;
+  const periodRequestCount = usageWindow.startAt === null
+    ? "COALESCE(usage.review_request_count, 0) + COALESCE(usage.rewrite_request_count, 0)"
+    : "COALESCE(period_usage.request_count, 0)";
+  const periodReviewRequestCount = usageWindow.startAt === null
+    ? "COALESCE(usage.review_request_count, 0)"
+    : "COALESCE(period_usage.review_request_count, 0)";
+  const periodRewriteRequestCount = usageWindow.startAt === null
+    ? "COALESCE(usage.rewrite_request_count, 0)"
+    : "COALESCE(period_usage.rewrite_request_count, 0)";
+  const prepared = database.prepare(
+    `SELECT
+       account.id,
+       account.email,
+       account.full_name,
+       account.role,
+       account.status,
+       account.created_at,
+       COALESCE(usage.review_request_count, 0) AS review_request_count,
+       COALESCE(usage.rewrite_request_count, 0) AS rewrite_request_count,
+       ${periodRequestCount} AS period_request_count,
+       ${periodReviewRequestCount} AS period_review_request_count,
+       ${periodRewriteRequestCount} AS period_rewrite_request_count
+     FROM users AS account
+     LEFT JOIN agent_request_usage AS usage ON usage.user_id = account.id
+     ${periodUsageJoin}
+     WHERE account.role = ? AND account.status <> 'disabled'
+     ORDER BY account.full_name COLLATE NOCASE, account.email COLLATE NOCASE
+     LIMIT 500`,
+  );
+  const statement = usageWindow.startAt === null
+    ? prepared.bind(role)
+    : prepared.bind(usageWindow.startAt, usageWindow.endAt, role);
+  const result = await statement.all<AccountListUserRow>();
   return result.results.map(mapAccountListUser);
 }
 
