@@ -202,7 +202,7 @@ async function submitRequest(email: string, overrides: Record<string, unknown> =
   );
 }
 
-function multipartAccountRequest(email: string, attachment: File) {
+function multipartAccountRequest(email: string, attachments: File | readonly File[]) {
   const formData = new FormData();
   for (const [key, value] of Object.entries({
     fullName: "Applicant Person",
@@ -215,7 +215,9 @@ function multipartAccountRequest(email: string, attachment: File) {
   })) {
     formData.set(key, value);
   }
-  formData.set("attachment", attachment);
+  for (const attachment of attachments instanceof File ? [attachments] : attachments) {
+    formData.append("attachments", attachment);
+  }
   return requestAccount(
     new Request(`${ORIGIN}/api/account-requests`, {
       method: "POST",
@@ -480,39 +482,56 @@ describe("account authentication and approval workflows", () => {
     });
   });
 
-  it("stores account attachments privately and only lets employees view or download them", async () => {
+  it("stores multiple account attachments privately and only lets employees view or download them", async () => {
     const png = Uint8Array.from(
       Buffer.from(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         "base64",
       ),
     );
+    const secondPng = new Uint8Array([...png, 0]);
     const submitted = await multipartAccountRequest(
       "attachment-client@example.test",
-      new File([png], "../application.png", { type: "image/png" }),
+      [
+        new File([png], "../application.png", { type: "image/png" }),
+        new File([secondPng], "evidence.png", { type: "image/png" }),
+      ],
     );
     expect(submitted.status).toBe(201);
     const requestId = ((await submitted.json()) as { requestId: string }).requestId;
-    const row = await database
+    const rows = await database
       .prepare(
-        `SELECT original_name, content_type, size_bytes, storage_key
+        `SELECT id, original_name, content_type, size_bytes, storage_key
          FROM account_request_attachments
-         WHERE account_request_id = ?`,
+         WHERE account_request_id = ?
+         ORDER BY original_name`,
       )
       .bind(requestId)
-      .first<{
+      .all<{
+        id: string;
         original_name: string;
         content_type: string;
         size_bytes: number;
         storage_key: string;
       }>();
-    expect(row).toMatchObject({
-      original_name: "_application.png",
-      content_type: "image/png",
-      size_bytes: png.length,
-      storage_key: expect.stringMatching(/^account-requests\/[a-f0-9-]+$/u),
-    });
-    expect(row?.storage_key).not.toContain("application.png");
+    expect(rows.results).toHaveLength(2);
+    expect(rows.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          original_name: "_application.png",
+          content_type: "image/png",
+          size_bytes: png.length,
+          storage_key: expect.stringMatching(/^account-requests\/[a-f0-9-]+$/u),
+        }),
+        expect.objectContaining({
+          original_name: "evidence.png",
+          content_type: "image/png",
+          size_bytes: secondPng.length,
+          storage_key: expect.stringMatching(/^account-requests\/[a-f0-9-]+$/u),
+        }),
+      ]),
+    );
+    expect(rows.results[0]?.storage_key).not.toContain("application.png");
 
     const anonymous = await getEmployeeAttachment(
       getRequest(`/api/employee/account-requests/${requestId}/attachment`),
@@ -541,9 +560,13 @@ describe("account authentication and approval workflows", () => {
     expect(forbidden.status).toBe(403);
 
     const employeeAuth = await employeeAuthentication();
+    const evidence = rows.results.find(
+      (attachment) => attachment.original_name === "evidence.png",
+    );
+    expect(evidence).toBeDefined();
     const viewed = await getEmployeeAttachment(
       getRequest(
-        `/api/employee/account-requests/${requestId}/attachment?mode=view`,
+        `/api/employee/account-requests/${requestId}/attachment?attachmentId=${evidence!.id}&mode=view`,
         employeeAuth.cookie,
       ),
       routeContext(requestId),
@@ -552,7 +575,7 @@ describe("account authentication and approval workflows", () => {
     expect(viewed.headers.get("content-type")).toBe("image/png");
     expect(viewed.headers.get("content-disposition")).toContain("inline");
     expect(viewed.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(new Uint8Array(await viewed.arrayBuffer())).toEqual(png);
+    expect(new Uint8Array(await viewed.arrayBuffer())).toEqual(secondPng);
 
     const details = await getEmployeeRequest(
       getRequest(
@@ -562,16 +585,23 @@ describe("account authentication and approval workflows", () => {
       routeContext(requestId),
     );
     const detailsBody = await details.json();
-    expect(detailsBody).toMatchObject({
-      request: {
-        id: requestId,
-        attachment: {
+    expect(detailsBody.request.id).toBe(requestId);
+    expect(detailsBody.request.attachments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           fileName: "_application.png",
           mimeType: "image/png",
           size: png.length,
-        },
-      },
-    });
+        }),
+        expect.objectContaining({
+          fileName: "evidence.png",
+          mimeType: "image/png",
+          size: secondPng.length,
+        }),
+      ]),
+    );
+    expect(detailsBody.request.attachments).toHaveLength(2);
+    expect(detailsBody.request.attachment).not.toBeNull();
     expect(JSON.stringify(detailsBody)).not.toContain("storage_key");
     expect(JSON.stringify(detailsBody)).not.toContain("storageKey");
   });

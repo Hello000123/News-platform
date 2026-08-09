@@ -18,6 +18,7 @@ const request: AccountRequestView = {
   department: "Editorial",
   jobTitle: "Editor",
   adminMessage: "Please review <img src=x onerror=\"alert(1)\">\nSecond line",
+  attachments: [],
   attachment: null,
   status: "pending",
   createdAt: 1,

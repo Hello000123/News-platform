@@ -132,7 +132,13 @@ hostname so the Next.js client bundle and hot-reload connection can hydrate on
 LAN clients. Restart the server after changing networks or receiving a new IP
 address, and allow Node.js through the Windows firewall when prompted.
 
-The browser sends only the submitted text, public source URL, and allowlisted model ID to the local Next.js backend. This workflow is intentionally text-only and does not accept picture uploads or user-supplied image captions/OCR. The backend retrieves public URL content, derives the rewrite language from the primary article, and calls only the selected model's provider with its matching server-only secret key. Provider keys are never included in browser source, browser requests, API error bodies, or application logs.
+The Rewrite–Review source section accepts multiple PDF, DOCX, PPTX, XLSX,
+PNG, JPEG, or WebP files with a combined maximum of 10 MB. Users review the
+file list and combined size before explicitly extracting it. The browser and
+backend enforce the same aggregate limit, while the backend also verifies each
+declared MIME type against the extension and actual content. Only sanitized,
+extracted text is added to the draft; provider keys are never included in
+browser source, browser requests, API error bodies, or application logs.
 
 ## Copied news scraper and publishing workflow
 

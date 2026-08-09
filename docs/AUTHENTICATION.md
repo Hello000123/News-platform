@@ -46,6 +46,9 @@ adds immutable client-removal audit records without changing or deleting any
 existing user.
 [`migrations/0004_account_request_attachments.sql`](../migrations/0004_account_request_attachments.sql)
 adds the D1 metadata and ownership table for private R2 account documents.
+[`migrations/0015_multiple_account_request_attachments.sql`](../migrations/0015_multiple_account_request_attachments.sql)
+preserves existing attachment rows and changes the ownership relationship to
+one-to-many.
 Times are stored as Unix seconds in UTC.
 
 ### Hosted-runtime password compatibility
@@ -73,7 +76,8 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
 1. An applicant submits their name, email address, and phone number at
    `/request-account`. Company/organisation, department, job title, and a
    1,000-character message to the administrator are optional. An applicant may
-   also attach one PDF, DOCX, PPTX, XLSX, PNG, JPEG, or WebP file up to 10 MB.
+   also attach multiple PDF, DOCX, PPTX, XLSX, PNG, JPEG, or WebP files with a
+   combined maximum of 10 MB per submission.
    File extension, declared MIME type, and content signature are validated by
    the browser and Worker. Zod validation runs in the browser for feedback and
    again on the Worker as the authority.

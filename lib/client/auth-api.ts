@@ -99,14 +99,16 @@ function postJson<T>(endpoint: string, body: unknown, includeCsrf = false) {
 
 export function submitAccountRequest(
   input: AccountRequestInput,
-  attachment?: File | null,
+  attachments: readonly File[] = [],
 ) {
-  if (attachment) {
+  if (attachments.length) {
     const formData = new FormData();
     for (const [key, value] of Object.entries(input)) {
       formData.set(key, value ?? "");
     }
-    formData.set("attachment", attachment);
+    for (const attachment of attachments) {
+      formData.append("attachments", attachment);
+    }
     return requestJson<{
       requestId: string;
       status: "pending";

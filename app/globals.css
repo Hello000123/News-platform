@@ -664,6 +664,25 @@ textarea:disabled {
   flex: 0 0 auto;
 }
 
+.attachment-summary {
+  margin: 10px 0 0;
+  color: var(--subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-upload-summary {
+  display: flex;
+  margin-top: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.draft-upload-summary .attachment-summary {
+  margin: 0;
+}
+
 .attachment-choice {
   display: flex;
   margin-top: 12px;
@@ -2671,6 +2690,16 @@ footer p {
   .attachment-choice {
     display: grid;
     align-items: stretch;
+  }
+
+  .draft-upload-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .draft-upload-summary .button {
+    width: 100%;
+    justify-content: center;
   }
 
   .file-picker-button {

@@ -29,8 +29,11 @@ import {
   type SourceSnapshot,
 } from "@/lib/shared/contracts";
 import {
+  addUploadsWithinLimit,
   FILE_UPLOAD_ACCEPT,
+  MAX_UPLOAD_MEGABYTES,
   SUPPORTED_UPLOAD_HELP,
+  totalUploadBytes,
   validateUploadMetadata,
 } from "@/lib/shared/file-upload";
 import {
@@ -43,12 +46,15 @@ import {
 type ProcessingState = "idle" | "reviewing" | "rewriting";
 
 type DraftAttachmentState = {
+  id: string;
+  file: File;
   name: string;
   type: string;
   size: number;
-  status: "processing" | "awaiting-choice" | "added" | "error";
+  status: "selected" | "processing" | "awaiting-choice" | "added" | "error";
   error?: string;
   truncated?: boolean;
+  content?: string;
 };
 
 type RewriteState =
@@ -88,6 +94,18 @@ const EMPTY_REWRITE_REFINEMENT: RewriteRefinement = {
 function countWords(text: string) {
   const normalized = text.trim();
   return normalized ? normalized.split(/\s+/u).length : 0;
+}
+
+function formattedUploadSize(bytes: number) {
+  if (bytes < 1024) return `${bytes.toLocaleString("en-US")} B`;
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+    })} MB`;
+  }
+  return `${(bytes / 1024).toLocaleString("en-US", {
+    maximumFractionDigits: 1,
+  })} KB`;
 }
 
 function messageForError(error: unknown) {
@@ -139,8 +157,9 @@ export function PressReleaseWorkspace({
   const [copied, setCopied] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sessionHydrated, setSessionHydrated] = useState(false);
-  const [draftAttachment, setDraftAttachment] =
-    useState<DraftAttachmentState | null>(null);
+  const [draftAttachments, setDraftAttachments] =
+    useState<DraftAttachmentState[]>([]);
+  const [draftAttachmentError, setDraftAttachmentError] = useState("");
   const [pendingExtractedText, setPendingExtractedText] = useState("");
   const [uploadDragActive, setUploadDragActive] = useState(false);
 
@@ -155,9 +174,19 @@ export function PressReleaseWorkspace({
   const activeRequestRef = useRef(0);
   const lastRefinementRef = useRef<RewriteRefinement>(EMPTY_REWRITE_REFINEMENT);
   const uploadSequenceRef = useRef(0);
+  const attachmentSequenceRef = useRef(0);
   const busy = processing !== "idle";
   const words = countWords(draft);
   const selectedModelDetails = selectableModelById(selectedModel);
+  const draftFileUploading = draftAttachments.some(
+    (attachment) => attachment.status === "processing",
+  );
+  const draftFilesToExtract = draftAttachments.filter(
+    (attachment) => attachment.status === "selected" || attachment.status === "error",
+  );
+  const draftAttachmentTotal = totalUploadBytes(
+    draftAttachments.map((attachment) => attachment.file),
+  );
 
   useEffect(() => {
     draftRef.current = draft;
@@ -313,51 +342,90 @@ export function PressReleaseWorkspace({
     markSourceChanged();
   }
 
-  function removeDraftAttachment() {
-    uploadSequenceRef.current += 1;
-    setDraftAttachment(null);
-    setPendingExtractedText("");
+  function removeDraftAttachment(attachmentId: string) {
+    if (draftFileUploading) return;
+    const nextAttachments = draftAttachments.filter(
+      (attachment) => attachment.id !== attachmentId,
+    );
+    setDraftAttachments(nextAttachments);
+    setDraftAttachmentError("");
+    const remainingPending = nextAttachments
+      .filter((attachment) => attachment.status === "awaiting-choice")
+      .map((attachment) => attachment.content ?? "")
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, MAX_DRAFT_CHARS);
+    setPendingExtractedText(remainingPending);
     setUploadDragActive(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function processDraftFile(file: File) {
-    if (busy) return;
-    const validation = validateUploadMetadata(file);
-    if ("error" in validation) {
-      setDraftAttachment({
-        name: file.name || "Selected file",
-        type: file.type || "Unknown type",
+  function addDraftFiles(files: readonly File[]) {
+    if (busy || draftFileUploading || pendingExtractedText) return;
+    const result = addUploadsWithinLimit(
+      draftAttachments.map((attachment) => attachment.file),
+      files,
+    );
+    const additions = result.accepted.map((file): DraftAttachmentState => {
+      const validation = validateUploadMetadata(file);
+      return {
+        id: `draft-file-${++attachmentSequenceRef.current}`,
+        file,
+        name: file.name,
+        type: "error" in validation ? file.type || "Unknown type" : validation.formatLabel,
         size: file.size,
-        status: "error",
-        error: validation.error,
-      });
-      setPendingExtractedText("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    const requestId = ++uploadSequenceRef.current;
-    setDraftAttachment({
-      name: file.name,
-      type: validation.formatLabel,
-      size: file.size,
-      status: "processing",
+        status: "selected",
+      };
     });
-    setPendingExtractedText("");
+    setDraftAttachments((current) => [...current, ...additions]);
+    setDraftAttachmentError(result.errors.join(" "));
+    setInputError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function processDraftFiles() {
+    if (busy || draftFileUploading || !draftFilesToExtract.length) return;
+    const requestId = ++uploadSequenceRef.current;
+    const submittedIds = new Set(
+      draftFilesToExtract.map((attachment) => attachment.id),
+    );
+    setDraftAttachments((current) =>
+      current.map((attachment) =>
+        submittedIds.has(attachment.id)
+          ? { ...attachment, status: "processing", error: undefined }
+          : attachment,
+      ),
+    );
+    setDraftAttachmentError("");
     setInputError("");
     try {
-      const result = await requestFileExtraction(file);
+      const result = await requestFileExtraction(
+        draftFilesToExtract.map((attachment) => attachment.file),
+      );
       if (uploadSequenceRef.current !== requestId) return;
       const currentDraft = draftRef.current;
-      const nextAttachment: DraftAttachmentState = {
-        name: result.file.name,
-        type: result.file.type,
-        size: result.file.size,
-        status: currentDraft.trim() ? "awaiting-choice" : "added",
-        truncated: result.truncated,
-      };
-      setDraftAttachment(nextAttachment);
+      const resultById = new Map(
+        draftFilesToExtract.map((attachment, index) => [
+          attachment.id,
+          result.files[index],
+        ]),
+      );
+      setDraftAttachments((current) =>
+        current.map((attachment) => {
+          const extracted = resultById.get(attachment.id);
+          if (!extracted) return attachment;
+          return {
+            ...attachment,
+            name: extracted.name,
+            type: extracted.type,
+            size: extracted.size,
+            status: currentDraft.trim() ? "awaiting-choice" : "added",
+            truncated: extracted.truncated || result.truncated,
+            content: extracted.content,
+            error: undefined,
+          };
+        }),
+      );
       if (currentDraft.trim()) {
         setPendingExtractedText(result.content);
       } else {
@@ -368,38 +436,47 @@ export function PressReleaseWorkspace({
       }
     } catch (error) {
       if (uploadSequenceRef.current !== requestId) return;
-      setDraftAttachment({
-        name: file.name,
-        type: validation.formatLabel,
-        size: file.size,
-        status: "error",
-        error:
-          error instanceof AuthRequestError
-            ? error.message
-            : "The file could not be processed. Try another file.",
-      });
+      const message =
+        error instanceof AuthRequestError
+          ? error.message
+          : "The files could not be processed. Try again or remove the affected file.";
+      setDraftAttachmentError(message);
+      setDraftAttachments((current) =>
+        current.map((attachment) =>
+          submittedIds.has(attachment.id)
+            ? { ...attachment, status: "error", error: message }
+            : attachment,
+        ),
+      );
     }
   }
 
   function applyExtractedContent(mode: "append" | "replace") {
-    if (!pendingExtractedText || !draftAttachment) return;
+    if (
+      !pendingExtractedText ||
+      !draftAttachments.some((attachment) => attachment.status === "awaiting-choice")
+    ) return;
     const nextDraft =
       mode === "append"
         ? `${draft.trimEnd()}\n\n${pendingExtractedText}`
         : pendingExtractedText;
     if (nextDraft.length > MAX_DRAFT_CHARS) {
-      setDraftAttachment({
-        ...draftAttachment,
-        status: "awaiting-choice",
-        error:
-          "Appending this file would exceed the 50,000-character draft limit. Replace the draft or shorten the existing text first.",
-      });
+      setDraftAttachmentError(
+        "Appending these files would exceed the 50,000-character draft limit. Replace the draft or shorten the existing text first.",
+      );
       return;
     }
     draftRef.current = nextDraft;
     setDraft(nextDraft);
     setPendingExtractedText("");
-    setDraftAttachment({ ...draftAttachment, status: "added", error: undefined });
+    setDraftAttachmentError("");
+    setDraftAttachments((current) =>
+      current.map((attachment) =>
+        attachment.status === "awaiting-choice"
+          ? { ...attachment, status: "added", error: undefined }
+          : attachment,
+      ),
+    );
     markSourceChanged();
     requestAnimationFrame(() => inputRef.current?.focus());
   }
@@ -671,7 +748,12 @@ export function PressReleaseWorkspace({
   }
 
   function handleStartNew() {
-    removeDraftAttachment();
+    uploadSequenceRef.current += 1;
+    setDraftAttachments([]);
+    setDraftAttachmentError("");
+    setPendingExtractedText("");
+    setUploadDragActive(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     draftRef.current = "";
     setDraft("");
     setSourceUrl("");
@@ -800,15 +882,19 @@ export function PressReleaseWorkspace({
           className={
             "file-upload-zone draft-upload-zone " +
             (uploadDragActive ? "file-upload-zone-active" : "") +
-            (draftAttachment?.status === "error" ? " file-upload-zone-error" : "")
+            (draftAttachmentError ? " file-upload-zone-error" : "")
           }
           onDragEnter={(event) => {
             event.preventDefault();
-            if (!busy) setUploadDragActive(true);
+            if (!busy && !draftFileUploading && !pendingExtractedText) {
+              setUploadDragActive(true);
+            }
           }}
           onDragOver={(event) => {
             event.preventDefault();
-            if (!busy) setUploadDragActive(true);
+            if (!busy && !draftFileUploading && !pendingExtractedText) {
+              setUploadDragActive(true);
+            }
           }}
           onDragLeave={(event) => {
             event.preventDefault();
@@ -819,8 +905,8 @@ export function PressReleaseWorkspace({
           onDrop={(event) => {
             event.preventDefault();
             setUploadDragActive(false);
-            const file = event.dataTransfer.files?.[0];
-            if (file) void processDraftFile(file);
+            const files = Array.from(event.dataTransfer.files ?? []);
+            if (files.length) addDraftFiles(files);
           }}
         >
           <input
@@ -828,72 +914,95 @@ export function PressReleaseWorkspace({
             id="draft-file"
             className="visually-hidden-file-input"
             type="file"
+            multiple
             accept={FILE_UPLOAD_ACCEPT}
-            disabled={busy}
+            disabled={busy || draftFileUploading || Boolean(pendingExtractedText)}
             onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void processDraftFile(file);
+              const files = Array.from(event.target.files ?? []);
+              if (files.length) addDraftFiles(files);
             }}
           />
           <div>
-            <strong>Attach a file or drop it here</strong>
+            <strong>Attach files or drop them here</strong>
             <p>{SUPPORTED_UPLOAD_HELP}</p>
           </div>
           <label className="button button-secondary file-picker-button" htmlFor="draft-file">
-            Choose file
+            Choose files
           </label>
         </div>
 
-        {draftAttachment ? (
-          <div className="attachment-row draft-attachment-row" aria-live="polite">
-            <div className="attachment-icon" aria-hidden="true">DOC</div>
-            <div className="attachment-details">
-              <strong>{draftAttachment.name}</strong>
-              <span>
-                {draftAttachment.type} ·{" "}
-                {(draftAttachment.size / 1024).toLocaleString("en-US", {
-                  maximumFractionDigits: 1,
-                })} KB
-              </span>
-              <span
-                className={
-                  "attachment-status " +
-                  (draftAttachment.status === "error" || draftAttachment.error
-                    ? "attachment-status-error"
-                    : "")
-                }
-              >
-                {draftAttachment.status === "processing" ? (
-                  <>
-                    <span className="spinner" aria-hidden="true" />
-                    Extracting readable content
-                  </>
-                ) : draftAttachment.status === "awaiting-choice" ? (
-                  draftAttachment.error || "Content extracted — choose how to add it"
-                ) : draftAttachment.status === "added" ? (
-                  "Content added to the draft editor"
-                ) : (
-                  draftAttachment.error
-                )}
-              </span>
-              {draftAttachment.truncated ? (
-                <span className="attachment-warning">
-                  Extracted content was shortened to the 50,000-character editor limit.
-                </span>
-              ) : null}
-            </div>
+        <div className="draft-upload-summary">
+          <p className="attachment-summary" aria-live="polite">
+            {draftAttachments.length.toLocaleString("en-US")} {draftAttachments.length === 1 ? "file" : "files"} selected · Combined size {formattedUploadSize(draftAttachmentTotal)} / {MAX_UPLOAD_MEGABYTES} MB
+          </p>
+          {draftFilesToExtract.length ? (
             <button
-              className="button button-quiet attachment-remove"
+              className="button button-secondary"
               type="button"
-              onClick={removeDraftAttachment}
-              disabled={busy}
+              disabled={busy || draftFileUploading || Boolean(pendingExtractedText)}
+              onClick={() => void processDraftFiles()}
             >
-              Remove
+              {draftFileUploading ? "Extracting files…" : "Extract selected files"}
             </button>
-          </div>
+          ) : null}
+        </div>
+
+        <div aria-live="polite">
+          {draftAttachments.map((attachment) => (
+            <div className="attachment-row draft-attachment-row" key={attachment.id}>
+              <div className="attachment-icon" aria-hidden="true">DOC</div>
+              <div className="attachment-details">
+                <strong>{attachment.name}</strong>
+                <span>{attachment.type} · {formattedUploadSize(attachment.size)}</span>
+                <span
+                  className={
+                    "attachment-status " +
+                    (attachment.status === "error" || attachment.error
+                      ? "attachment-status-error"
+                      : "")
+                  }
+                >
+                  {attachment.status === "processing" ? (
+                    <>
+                      <span className="spinner" aria-hidden="true" />
+                      Extracting readable content
+                    </>
+                  ) : attachment.status === "selected" ? (
+                    "Ready to extract"
+                  ) : attachment.status === "awaiting-choice" ? (
+                    "Content extracted — choose how to add it"
+                  ) : attachment.status === "added" ? (
+                    "Content added to the draft editor"
+                  ) : (
+                    attachment.error
+                  )}
+                </span>
+                {attachment.truncated ? (
+                  <span className="attachment-warning">
+                    Extracted content was shortened to the 50,000-character editor limit.
+                  </span>
+                ) : null}
+              </div>
+              <button
+                className="button button-quiet attachment-remove"
+                type="button"
+                aria-label={`Remove ${attachment.name}`}
+                onClick={() => removeDraftAttachment(attachment.id)}
+                disabled={busy || draftFileUploading}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {draftAttachmentError ? (
+          <p className="field-error-message" role="alert">
+            {draftAttachmentError}
+          </p>
         ) : null}
 
-        {draftAttachment?.status === "awaiting-choice" && pendingExtractedText ? (
+        {draftAttachments.some((attachment) => attachment.status === "awaiting-choice") && pendingExtractedText ? (
           <div className="attachment-choice" role="group" aria-label="Add extracted file content">
             <div>
               <strong>Keep the current draft?</strong>

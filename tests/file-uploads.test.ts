@@ -6,8 +6,11 @@ import {
   validateUploadedFile,
 } from "@/lib/server/uploads/file-processing";
 import {
+  addUploadsWithinLimit,
+  COMBINED_UPLOAD_LIMIT_ERROR,
   MAX_UPLOAD_BYTES,
   SUPPORTED_UPLOADS,
+  validateUploadCollection,
   validateUploadMetadata,
   type SupportedUploadExtension,
 } from "@/lib/shared/file-upload";
@@ -166,6 +169,59 @@ afterEach(() => {
 });
 
 describe("upload metadata validation", () => {
+  const pdfMetadata = (name: string, size: number) => ({
+    name,
+    type: "application/pdf",
+    size,
+  });
+
+  it("accepts several files below and exactly at the combined 10 MB boundary", () => {
+    const below = [
+      pdfMetadata("one.pdf", 3 * 1024 * 1024),
+      pdfMetadata("two.pdf", 4 * 1024 * 1024),
+    ];
+    const exact = [
+      pdfMetadata("six.pdf", 6 * 1024 * 1024),
+      pdfMetadata("four.pdf", 4 * 1024 * 1024),
+    ];
+
+    expect(validateUploadCollection(below)).toEqual({
+      totalBytes: 7 * 1024 * 1024,
+    });
+    expect(validateUploadCollection(exact)).toEqual({
+      totalBytes: MAX_UPLOAD_BYTES,
+    });
+  });
+
+  it("rejects collections above 10 MB and a single file above 10 MB", () => {
+    expect(
+      validateUploadCollection([
+        pdfMetadata("six.pdf", 6 * 1024 * 1024),
+        pdfMetadata("five.pdf", 5 * 1024 * 1024),
+      ]),
+    ).toEqual({ error: COMBINED_UPLOAD_LIMIT_ERROR });
+    expect(
+      validateUploadCollection([
+        pdfMetadata("large.pdf", MAX_UPLOAD_BYTES + 1),
+      ]),
+    ).toEqual({
+      error: "The selected file is larger than the 10 MB limit.",
+    });
+  });
+
+  it("rejects only an addition that exceeds the total and accepts another after removal", () => {
+    const six = pdfMetadata("six.pdf", 6 * 1024 * 1024);
+    const five = pdfMetadata("five.pdf", 5 * 1024 * 1024);
+    const first = addUploadsWithinLimit([six], [five]);
+    expect(first.selected).toEqual([six]);
+    expect(first.accepted).toEqual([]);
+    expect(first.errors.join(" ")).toContain(COMBINED_UPLOAD_LIMIT_ERROR);
+
+    const afterRemoval = addUploadsWithinLimit([], [five]);
+    expect(afterRemoval.selected).toEqual([five]);
+    expect(afterRemoval.totalBytes).toBe(5 * 1024 * 1024);
+  });
+
   it.each(Object.keys(SUPPORTED_UPLOADS) as SupportedUploadExtension[])(
     "accepts a valid %s extension and MIME pair",
     (extension) => {

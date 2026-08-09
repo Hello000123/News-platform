@@ -45,6 +45,11 @@ import type {
   ClientRemovalAuditView,
   PasswordDerivation,
 } from "@/lib/shared/auth-contracts";
+import {
+  MAX_UPLOAD_BYTES,
+  totalUploadBytes,
+  validateUploadCollection,
+} from "@/lib/shared/file-upload";
 
 function changed(result: D1Result) {
   return Number(result.meta.changes ?? 0);
@@ -82,39 +87,56 @@ export async function submitAccountRequest(
   database: D1Database,
   input: AccountRequestInput,
   publicAppUrl: string,
-  attachmentFile?: File,
+  attachmentFiles: readonly File[] = [],
 ) {
-  let attachment:
-    | {
-        id: string;
-        storageKey: string;
-        fileName: string;
-        mimeType: string;
-        size: number;
-        createdAt: number;
-      }
-    | undefined;
+  const attachments: Array<{
+    id: string;
+    storageKey: string;
+    fileName: string;
+    mimeType: string;
+    size: number;
+    createdAt: number;
+  }> = [];
   let bucket: ReturnType<typeof getAccountDocumentBucket> | undefined;
 
-  if (attachmentFile) {
-    const validated = await validateUploadedFile(attachmentFile);
+  if (attachmentFiles.length) {
+    const collection = validateUploadCollection(attachmentFiles);
+    if ("error" in collection) {
+      const tooLarge =
+        totalUploadBytes(attachmentFiles) > MAX_UPLOAD_BYTES ||
+        attachmentFiles.some((file) => file.size > MAX_UPLOAD_BYTES);
+      throw new AppError(
+        tooLarge ? "UPLOAD_TOTAL_TOO_LARGE" : "INVALID_UPLOAD_SELECTION",
+        collection.error ?? "The selected files are invalid.",
+        tooLarge ? 413 : 400,
+      );
+    }
+    const validatedFiles = await Promise.all(
+      attachmentFiles.map((file) => validateUploadedFile(file)),
+    );
     bucket = getAccountDocumentBucket();
-    attachment = {
-      id: createId(),
-      storageKey: `account-requests/${createId()}`,
-      fileName: validated.safeName,
-      mimeType: validated.mimeType,
-      size: validated.size,
-      createdAt: nowInSeconds(),
-    };
     try {
-      await bucket.put(attachment.storageKey, validated.bytes, {
-        httpMetadata: { contentType: attachment.mimeType },
-      });
+      for (const validated of validatedFiles) {
+        const attachment = {
+          id: createId(),
+          storageKey: `account-requests/${createId()}`,
+          fileName: validated.safeName,
+          mimeType: validated.mimeType,
+          size: validated.size,
+          createdAt: nowInSeconds(),
+        };
+        attachments.push(attachment);
+        await bucket.put(attachment.storageKey, validated.bytes, {
+          httpMetadata: { contentType: attachment.mimeType },
+        });
+      }
     } catch (error) {
+      await Promise.allSettled(
+        attachments.map((attachment) => bucket!.delete(attachment.storageKey)),
+      );
       throw new AppError(
         "DOCUMENT_STORAGE_UNAVAILABLE",
-        "The supporting document could not be stored securely. Try again later.",
+        "The supporting documents could not be stored securely. Try again later.",
         503,
         { cause: error },
       );
@@ -123,10 +145,12 @@ export async function submitAccountRequest(
 
   let request: AccountRequestView;
   try {
-    request = await createPendingAccountRequest(database, input, attachment);
+    request = await createPendingAccountRequest(database, input, attachments);
   } catch (error) {
-    if (attachment && bucket) {
-      await bucket.delete(attachment.storageKey).catch(() => undefined);
+    if (attachments.length && bucket) {
+      await Promise.allSettled(
+        attachments.map((attachment) => bucket!.delete(attachment.storageKey)),
+      );
     }
     throw error;
   }

@@ -20,23 +20,25 @@ const ACCOUNT_REQUEST_FIELDS = [
   "adminMessage",
 ] as const;
 
+const MAX_ACCOUNT_REQUEST_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 1024 * 1024;
+
 async function parseAccountRequest(request: Request) {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("multipart/form-data;")) {
     return {
       input: accountRequestInputSchema.parse(await readJsonRequest(request)),
-      attachment: undefined,
+      attachments: [],
     };
   }
 
   const contentLength = Number(request.headers.get("content-length"));
   if (
     Number.isFinite(contentLength) &&
-    contentLength > MAX_UPLOAD_BYTES + 256 * 1024
+    contentLength > MAX_ACCOUNT_REQUEST_MULTIPART_BYTES
   ) {
     throw new AppError(
       "FILE_TOO_LARGE",
-      "The supporting document is larger than the 10 MB limit.",
+      "The combined size of all selected files cannot exceed the 10 MB limit.",
       413,
     );
   }
@@ -57,24 +59,29 @@ async function parseAccountRequest(request: Request) {
       return [field, typeof value === "string" ? value : ""];
     }),
   );
-  const candidate = formData.get("attachment");
-  const attachment =
-    candidate instanceof File && candidate.name.trim() ? candidate : undefined;
+  const candidates = formData.getAll("attachments");
+  const legacyCandidates = candidates.length
+    ? []
+    : formData.getAll("attachment");
+  const attachments = [...candidates, ...legacyCandidates].filter(
+    (candidate): candidate is File =>
+      candidate instanceof File && Boolean(candidate.name.trim()),
+  );
   return {
     input: accountRequestInputSchema.parse(rawInput),
-    attachment,
+    attachments,
   };
 }
 
 export async function POST(request: Request) {
   try {
     validateSameOrigin(request);
-    const { input, attachment } = await parseAccountRequest(request);
+    const { input, attachments } = await parseAccountRequest(request);
     const result = await submitAccountRequest(
       getDatabase(),
       input,
       getPublicAppUrlForRequest(request),
-      attachment,
+      attachments,
     );
     return jsonResponse(
       {

@@ -316,6 +316,8 @@ export interface AccountRequestView {
   department: string | null;
   jobTitle: string | null;
   adminMessage: string | null;
+  attachments: AccountRequestAttachmentView[];
+  /** First attachment retained for older API consumers. */
   attachment: AccountRequestAttachmentView | null;
   status: AccountRequestStatus;
   createdAt: number;

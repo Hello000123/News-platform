@@ -12,9 +12,12 @@ import {
   accountRequestInputSchema,
 } from "@/lib/shared/auth-contracts";
 import {
+  addUploadsWithinLimit,
   FILE_UPLOAD_ACCEPT,
+  MAX_UPLOAD_MEGABYTES,
   SUPPORTED_UPLOAD_HELP,
-  validateUploadMetadata,
+  totalUploadBytes,
+  validateUploadCollection,
 } from "@/lib/shared/file-upload";
 
 interface AccountRequestDraft {
@@ -93,11 +96,23 @@ function issuesByField(error: {
   return result;
 }
 
+function formattedUploadSize(bytes: number) {
+  if (bytes < 1024) return `${bytes.toLocaleString("en-US")} B`;
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toLocaleString("en-US", {
+      maximumFractionDigits: 2,
+    })} MB`;
+  }
+  return `${(bytes / 1024).toLocaleString("en-US", {
+    maximumFractionDigits: 1,
+  })} KB`;
+}
+
 export function AccountRequestForm() {
   const router = useRouter();
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [values, setValues] = useState<AccountRequestDraft>(INITIAL_VALUES);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState("");
@@ -112,10 +127,10 @@ export function AccountRequestForm() {
       setFieldErrors(issuesByField(parsed.error));
       return;
     }
-    if (attachment) {
-      const validation = validateUploadMetadata(attachment);
+    if (attachments.length) {
+      const validation = validateUploadCollection(attachments);
       if ("error" in validation) {
-        setAttachmentError(validation.error);
+        setAttachmentError(validation.error ?? "The selected files are invalid.");
         return;
       }
     }
@@ -123,7 +138,7 @@ export function AccountRequestForm() {
     setSubmitting(true);
     setFieldErrors({});
     try {
-      await submitAccountRequest(parsed.data, attachment);
+      await submitAccountRequest(parsed.data, attachments);
       router.replace("/request-submitted");
     } catch (error) {
       if (error instanceof AuthRequestError) {
@@ -229,67 +244,69 @@ export function AccountRequestForm() {
               ref={attachmentInputRef}
               id="account-attachment"
               className="visually-hidden-file-input"
-              name="attachment"
+              name="attachments"
               type="file"
+              multiple
               accept={FILE_UPLOAD_ACCEPT}
               disabled={submitting}
               onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                if (!file) return;
-                const validation = validateUploadMetadata(file);
-                if ("error" in validation) {
-                  setAttachment(null);
-                  setAttachmentError(validation.error);
-                  event.target.value = "";
-                  return;
-                }
-                setAttachment(file);
-                setAttachmentError("");
+                const files = Array.from(event.target.files ?? []);
+                if (!files.length) return;
+                const result = addUploadsWithinLimit(attachments, files);
+                setAttachments(result.selected);
+                setAttachmentError(result.errors.join(" "));
+                event.target.value = "";
               }}
             />
             <div>
-              <strong>Add a supporting file</strong>
+              <strong>Add supporting files</strong>
               <p>{SUPPORTED_UPLOAD_HELP}</p>
             </div>
             <label className="button button-secondary file-picker-button" htmlFor="account-attachment">
-              Choose file
+              Choose files
             </label>
           </div>
-          {attachment ? (
-            <div className="attachment-row" aria-live="polite">
-              <div className="attachment-icon" aria-hidden="true">DOC</div>
-              <div className="attachment-details">
-                <strong>{attachment.name}</strong>
-                <span>
-                  {attachment.type} · {(attachment.size / 1024).toLocaleString("en-US", {
-                    maximumFractionDigits: 1,
-                  })} KB
-                </span>
-                <span className="attachment-status">
-                  {submitting ? (
-                    <>
-                      <span className="spinner" aria-hidden="true" />
-                      Uploading securely
-                    </>
-                  ) : (
-                    "Ready to upload"
-                  )}
-                </span>
-              </div>
-              <button
-                className="button button-quiet attachment-remove"
-                type="button"
-                disabled={submitting}
-                onClick={() => {
-                  setAttachment(null);
-                  setAttachmentError("");
-                  if (attachmentInputRef.current) attachmentInputRef.current.value = "";
-                }}
+          <p className="attachment-summary" aria-live="polite">
+            {attachments.length.toLocaleString("en-US")} {attachments.length === 1 ? "file" : "files"} selected · Combined size {formattedUploadSize(totalUploadBytes(attachments))} / {MAX_UPLOAD_MEGABYTES} MB
+          </p>
+          <div aria-live="polite">
+            {attachments.map((attachment, index) => (
+              <div
+                className="attachment-row"
+                key={`${attachment.name}-${attachment.size}-${attachment.lastModified}-${index}`}
               >
-                Remove
-              </button>
-            </div>
-          ) : null}
+                <div className="attachment-icon" aria-hidden="true">DOC</div>
+                <div className="attachment-details">
+                  <strong>{attachment.name}</strong>
+                  <span>{attachment.type} · {formattedUploadSize(attachment.size)}</span>
+                  <span className="attachment-status">
+                    {submitting ? (
+                      <>
+                        <span className="spinner" aria-hidden="true" />
+                        Uploading securely
+                      </>
+                    ) : (
+                      "Ready to upload"
+                    )}
+                  </span>
+                </div>
+                <button
+                  className="button button-quiet attachment-remove"
+                  type="button"
+                  aria-label={`Remove ${attachment.name}`}
+                  disabled={submitting}
+                  onClick={() => {
+                    setAttachments((current) =>
+                      current.filter((_, candidateIndex) => candidateIndex !== index),
+                    );
+                    setAttachmentError("");
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
           {attachmentError ? (
             <p className="auth-field-error" role="alert">
               {attachmentError}

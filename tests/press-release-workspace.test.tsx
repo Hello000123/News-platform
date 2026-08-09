@@ -128,8 +128,31 @@ describe("score-first workspace", () => {
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         size: 1_024,
         status: "ready",
+        content: "First extracted paragraph.",
+        truncated: false,
       },
-      content: "First extracted paragraph.\nSecond extracted paragraph.",
+      files: [
+        {
+          name: "briefing.docx",
+          type: "Microsoft Word",
+          mimeType:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          size: 1_024,
+          status: "ready",
+          content: "First extracted paragraph.",
+          truncated: false,
+        },
+        {
+          name: "figures.pdf",
+          type: "PDF",
+          mimeType: "application/pdf",
+          size: 2_048,
+          status: "ready",
+          content: "Second extracted paragraph.",
+          truncated: false,
+        },
+      ],
+      content: "First extracted paragraph.\n\nSecond extracted paragraph.",
       truncated: false,
     });
     const user = userEvent.setup();
@@ -141,14 +164,25 @@ describe("score-first workspace", () => {
       type:
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
-    await user.upload(document.querySelector("#draft-file") as HTMLInputElement, file);
+    const secondFile = new File(["valid PDF"], "figures.pdf", {
+      type: "application/pdf",
+    });
+    const fileInput = document.querySelector("#draft-file") as HTMLInputElement;
+    await user.upload(fileInput, [file, secondFile]);
+
+    expect(fileInput.multiple).toBe(true);
+    expect(screen.getByText(/2 files selected/u)).toBeTruthy();
+    expect(screen.getByText("briefing.docx")).toBeTruthy();
+    expect(screen.getByText("figures.pdf")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Extract selected files" }));
 
     expect(await screen.findByText("Keep the current draft?")).toBeTruthy();
     expect((editor as HTMLTextAreaElement).value).toBe("Existing draft text.");
     await user.click(screen.getByRole("button", { name: "Append to draft" }));
     expect((editor as HTMLTextAreaElement).value).toBe(
-      "Existing draft text.\n\nFirst extracted paragraph.\nSecond extracted paragraph.",
+      "Existing draft text.\n\nFirst extracted paragraph.\n\nSecond extracted paragraph.",
     );
+    expect(fileExtractionMock).toHaveBeenCalledWith([file, secondFile]);
   });
 
   it("rejects an unsupported Draft attachment before sending it", async () => {
@@ -161,6 +195,33 @@ describe("score-first workspace", () => {
     expect(
       await screen.findByText(/Unsupported file format/u),
     ).toBeTruthy();
+    expect(fileExtractionMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces the combined 10 MB Draft-file limit and allows replacement after removal", async () => {
+    const user = userEvent.setup();
+    render(<PressReleaseWorkspace initialPassScore={80} />);
+    const input = document.querySelector("#draft-file") as HTMLInputElement;
+    const sixMegabytes = new File(
+      [new Uint8Array(6 * 1024 * 1024)],
+      "six.pdf",
+      { type: "application/pdf" },
+    );
+    const fiveMegabytes = new File(
+      [new Uint8Array(5 * 1024 * 1024)],
+      "five.pdf",
+      { type: "application/pdf" },
+    );
+
+    fireEvent.change(input, { target: { files: [sixMegabytes] } });
+    fireEvent.change(input, { target: { files: [fiveMegabytes] } });
+    expect(await screen.findByText(/combined size.*cannot exceed.*10 MB/iu)).toBeTruthy();
+    expect(screen.queryByText("five.pdf")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Remove six.pdf" }));
+    fireEvent.change(input, { target: { files: [fiveMegabytes] } });
+    expect(screen.getByText("five.pdf")).toBeTruthy();
+    expect(screen.getByText(/Combined size 5 MB \/ 10 MB/u)).toBeTruthy();
     expect(fileExtractionMock).not.toHaveBeenCalled();
   });
 

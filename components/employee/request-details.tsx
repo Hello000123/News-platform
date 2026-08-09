@@ -126,6 +126,11 @@ export function EmployeeRequestDetails({
     ["Submitted", formattedDate(request.createdAt)],
     ["Last updated", formattedDate(request.updatedAt)],
   ];
+  const attachments = request.attachments.length
+    ? request.attachments
+    : request.attachment
+      ? [request.attachment]
+      : [];
 
   return (
     <div className="employee-detail-grid">
@@ -150,36 +155,37 @@ export function EmployeeRequestDetails({
           <p>{request.adminMessage || "No message provided"}</p>
         </div>
         <div className="employee-attachment">
-          <h2>Supporting document</h2>
-          {request.attachment ? (
-            <div className="attachment-row">
-              <div className="attachment-icon" aria-hidden="true">DOC</div>
-              <div className="attachment-details">
-                <strong>{request.attachment.fileName}</strong>
-                <span>
-                  {request.attachment.mimeType} ·{" "}
-                  {formattedFileSize(request.attachment.size)}
-                </span>
+          <h2>Supporting documents</h2>
+          {attachments.length ? (
+            attachments.map((attachment) => (
+              <div className="attachment-row" key={attachment.id}>
+                <div className="attachment-icon" aria-hidden="true">DOC</div>
+                <div className="attachment-details">
+                  <strong>{attachment.fileName}</strong>
+                  <span>
+                    {attachment.mimeType} · {formattedFileSize(attachment.size)}
+                  </span>
+                </div>
+                <div className="employee-attachment-actions">
+                  <a
+                    className="button button-secondary"
+                    href={`/api/employee/account-requests/${encodeURIComponent(request.id)}/attachment?attachmentId=${encodeURIComponent(attachment.id)}&mode=view`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View
+                  </a>
+                  <a
+                    className="button button-quiet"
+                    href={`/api/employee/account-requests/${encodeURIComponent(request.id)}/attachment?attachmentId=${encodeURIComponent(attachment.id)}`}
+                  >
+                    Download
+                  </a>
+                </div>
               </div>
-              <div className="employee-attachment-actions">
-                <a
-                  className="button button-secondary"
-                  href={`/api/employee/account-requests/${encodeURIComponent(request.id)}/attachment?mode=view`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View
-                </a>
-                <a
-                  className="button button-quiet"
-                  href={`/api/employee/account-requests/${encodeURIComponent(request.id)}/attachment`}
-                >
-                  Download
-                </a>
-              </div>
-            </div>
+            ))
           ) : (
-            <p>No supporting document provided</p>
+            <p>No supporting documents provided</p>
           )}
         </div>
       </section>

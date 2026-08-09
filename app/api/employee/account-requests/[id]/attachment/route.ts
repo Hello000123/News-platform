@@ -24,9 +24,12 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     await requireApiSession(request, ["employee"]);
     const { id } = await context.params;
+    const searchParams = new URL(request.url).searchParams;
+    const attachmentId = searchParams.get("attachmentId")?.trim() || undefined;
     const attachment = await getAccountRequestAttachmentByRequestId(
       getDatabase(),
       id,
+      attachmentId,
     );
     if (!attachment) {
       throw new AppError(
@@ -44,7 +47,7 @@ export async function GET(request: Request, context: RouteContext) {
       );
     }
 
-    const mode = new URL(request.url).searchParams.get("mode");
+    const mode = searchParams.get("mode");
     const disposition = mode === "view" ? "inline" : "attachment";
     return new Response(object.body as unknown as BodyInit, {
       headers: {

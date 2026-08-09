@@ -5,6 +5,7 @@ import { isUniqueConstraintError } from "@/lib/server/auth/database";
 import { AppError } from "@/lib/server/errors";
 import type {
   AccountRequestInput,
+  AccountRequestAttachmentView,
   AccountRequestStatus,
   AccountRequestView,
   AccountListUserView,
@@ -21,11 +22,6 @@ interface AccountRequestRow {
   department: string | null;
   job_title: string | null;
   admin_message: string | null;
-  attachment_id: string | null;
-  attachment_original_name: string | null;
-  attachment_content_type: string | null;
-  attachment_size_bytes: number | null;
-  attachment_created_at: number | null;
   status: AccountRequestStatus;
   decided_by: string | null;
   decided_at: number | null;
@@ -38,6 +34,7 @@ interface AccountRequestRow {
 
 interface AccountRequestAttachmentRow {
   id: string;
+  account_request_id: string;
   storage_key: string;
   original_name: string;
   content_type: string;
@@ -86,7 +83,10 @@ export interface SetupTokenRow {
   user_role: UserRole;
 }
 
-function mapAccountRequest(row: AccountRequestRow): AccountRequestView {
+function mapAccountRequest(
+  row: AccountRequestRow,
+  attachments: AccountRequestAttachmentView[] = [],
+): AccountRequestView {
   return {
     id: row.id,
     fullName: row.full_name,
@@ -96,20 +96,8 @@ function mapAccountRequest(row: AccountRequestRow): AccountRequestView {
     department: row.department,
     jobTitle: row.job_title,
     adminMessage: row.admin_message,
-    attachment:
-      row.attachment_id &&
-      row.attachment_original_name &&
-      row.attachment_content_type &&
-      row.attachment_size_bytes &&
-      row.attachment_created_at
-        ? {
-            id: row.attachment_id,
-            fileName: row.attachment_original_name,
-            mimeType: row.attachment_content_type,
-            size: row.attachment_size_bytes,
-            createdAt: row.attachment_created_at,
-          }
-        : null,
+    attachments,
+    attachment: attachments[0] ?? null,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -149,11 +137,6 @@ const ACCOUNT_REQUEST_SELECT = `
     request.department,
     request.job_title,
     request.admin_message,
-    attachment.id AS attachment_id,
-    attachment.original_name AS attachment_original_name,
-    attachment.content_type AS attachment_content_type,
-    attachment.size_bytes AS attachment_size_bytes,
-    attachment.created_at AS attachment_created_at,
     request.status,
     request.decided_by,
     request.decided_at,
@@ -164,14 +147,12 @@ const ACCOUNT_REQUEST_SELECT = `
     actor.email AS actor_email
   FROM account_requests AS request
   LEFT JOIN users AS actor ON actor.id = request.decided_by
-  LEFT JOIN account_request_attachments AS attachment
-    ON attachment.account_request_id = request.id
 `;
 
 export async function createPendingAccountRequest(
   database: D1Database,
   input: AccountRequestInput,
-  attachment?: PendingAccountRequestAttachment,
+  attachments: readonly PendingAccountRequestAttachment[] = [],
 ) {
   const existingUser = await database
     .prepare("SELECT id FROM users WHERE email = ? COLLATE NOCASE LIMIT 1")
@@ -208,25 +189,27 @@ export async function createPendingAccountRequest(
         now,
         now,
       );
-    if (attachment) {
+    if (attachments.length) {
       await database.batch([
         requestInsert,
-        database
-          .prepare(
-            `INSERT INTO account_request_attachments (
-              id, account_request_id, storage_key, original_name,
-              content_type, size_bytes, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(
-            attachment.id,
-            id,
-            attachment.storageKey,
-            attachment.fileName,
-            attachment.mimeType,
-            attachment.size,
-            attachment.createdAt,
-          ),
+        ...attachments.map((attachment) =>
+          database
+            .prepare(
+              `INSERT INTO account_request_attachments (
+                id, account_request_id, storage_key, original_name,
+                content_type, size_bytes, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              attachment.id,
+              id,
+              attachment.storageKey,
+              attachment.fileName,
+              attachment.mimeType,
+              attachment.size,
+              attachment.createdAt,
+            ),
+        ),
       ]);
     } else {
       await requestInsert.run();
@@ -253,6 +236,44 @@ export async function createPendingAccountRequest(
   return created;
 }
 
+function mapAccountRequestAttachment(
+  row: AccountRequestAttachmentRow,
+): AccountRequestAttachmentView {
+  return {
+    id: row.id,
+    fileName: row.original_name,
+    mimeType: row.content_type,
+    size: row.size_bytes,
+    createdAt: row.created_at,
+  };
+}
+
+async function attachmentsByAccountRequest(
+  database: D1Database,
+  requestIds: readonly string[],
+) {
+  const attachments = new Map<string, AccountRequestAttachmentView[]>();
+  if (!requestIds.length) return attachments;
+  const placeholders = requestIds.map(() => "?").join(", ");
+  const result = await database
+    .prepare(
+      `SELECT
+         id, account_request_id, storage_key, original_name,
+         content_type, size_bytes, created_at
+       FROM account_request_attachments
+       WHERE account_request_id IN (${placeholders})
+       ORDER BY created_at, id`,
+    )
+    .bind(...requestIds)
+    .all<AccountRequestAttachmentRow>();
+  for (const row of result.results) {
+    const current = attachments.get(row.account_request_id) ?? [];
+    current.push(mapAccountRequestAttachment(row));
+    attachments.set(row.account_request_id, current);
+  }
+  return attachments;
+}
+
 export async function listAccountRequests(
   database: D1Database,
   status?: AccountRequestStatus,
@@ -272,7 +293,13 @@ export async function listAccountRequests(
          LIMIT 200`,
       );
   const result = await statement.all<AccountRequestRow>();
-  return result.results.map(mapAccountRequest);
+  const attachments = await attachmentsByAccountRequest(
+    database,
+    result.results.map((row) => row.id),
+  );
+  return result.results.map((row) =>
+    mapAccountRequest(row, attachments.get(row.id) ?? []),
+  );
 }
 
 export async function getAccountRequestById(database: D1Database, id: string) {
@@ -280,23 +307,39 @@ export async function getAccountRequestById(database: D1Database, id: string) {
     .prepare(`${ACCOUNT_REQUEST_SELECT} WHERE request.id = ? LIMIT 1`)
     .bind(id)
     .first<AccountRequestRow>();
-  return row ? mapAccountRequest(row) : null;
+  if (!row) return null;
+  const attachments = await attachmentsByAccountRequest(database, [row.id]);
+  return mapAccountRequest(row, attachments.get(row.id) ?? []);
 }
 
 export async function getAccountRequestAttachmentByRequestId(
   database: D1Database,
   requestId: string,
+  attachmentId?: string,
 ) {
-  const row = await database
-    .prepare(
-      `SELECT
-        id, storage_key, original_name, content_type, size_bytes, created_at
-       FROM account_request_attachments
-       WHERE account_request_id = ?
-       LIMIT 1`,
-    )
-    .bind(requestId)
-    .first<AccountRequestAttachmentRow>();
+  const statement = attachmentId
+    ? database
+        .prepare(
+          `SELECT
+             id, account_request_id, storage_key, original_name,
+             content_type, size_bytes, created_at
+           FROM account_request_attachments
+           WHERE account_request_id = ? AND id = ?
+           LIMIT 1`,
+        )
+        .bind(requestId, attachmentId)
+    : database
+        .prepare(
+          `SELECT
+             id, account_request_id, storage_key, original_name,
+             content_type, size_bytes, created_at
+           FROM account_request_attachments
+           WHERE account_request_id = ?
+           ORDER BY created_at, id
+           LIMIT 1`,
+        )
+        .bind(requestId);
+  const row = await statement.first<AccountRequestAttachmentRow>();
   return row
     ? {
         id: row.id,

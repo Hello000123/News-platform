@@ -117,7 +117,7 @@ describe("account request and employee summary UI", () => {
     expect(screen.queryByRole("button", { name: /resend verification/iu })).toBeNull();
   });
 
-  it("validates and displays an optional supporting document", async () => {
+  it("validates, displays, and removes optional supporting documents", async () => {
     const user = userEvent.setup();
     render(<AccountRequestForm />);
     const input = document.querySelector("#account-attachment") as HTMLInputElement;
@@ -135,11 +135,48 @@ describe("account request and employee summary UI", () => {
     const documentFile = new File(["document"], "application.pdf", {
       type: "application/pdf",
     });
-    fireEvent.change(input, { target: { files: [documentFile] } });
+    const secondDocument = new File(["second"], "company.pdf", {
+      type: "application/pdf",
+    });
+    fireEvent.change(input, {
+      target: { files: [documentFile, secondDocument] },
+    });
+    expect(input.multiple).toBe(true);
     expect(screen.getByText("application.pdf")).toBeTruthy();
-    expect(screen.getByText("Ready to upload")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.getByText("company.pdf")).toBeTruthy();
+    expect(screen.getByText(/2 files selected/u)).toBeTruthy();
+    expect(screen.getAllByText("Ready to upload")).toHaveLength(2);
+    await user.click(
+      screen.getByRole("button", { name: "Remove application.pdf" }),
+    );
     expect(screen.queryByText("application.pdf")).toBeNull();
+    expect(screen.getByText(/1 file selected/u)).toBeTruthy();
+  });
+
+  it("rejects an addition above the combined limit and accepts it after removal", async () => {
+    const user = userEvent.setup();
+    render(<AccountRequestForm />);
+    const input = document.querySelector("#account-attachment") as HTMLInputElement;
+    const sixMegabytes = new File(
+      [new Uint8Array(6 * 1024 * 1024)],
+      "six.pdf",
+      { type: "application/pdf" },
+    );
+    const fiveMegabytes = new File(
+      [new Uint8Array(5 * 1024 * 1024)],
+      "five.pdf",
+      { type: "application/pdf" },
+    );
+
+    fireEvent.change(input, { target: { files: [sixMegabytes] } });
+    fireEvent.change(input, { target: { files: [fiveMegabytes] } });
+    expect(await screen.findByText(/combined size.*cannot exceed.*10 MB/iu)).toBeTruthy();
+    expect(screen.queryByText("five.pdf")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Remove six.pdf" }));
+    fireEvent.change(input, { target: { files: [fiveMegabytes] } });
+    expect(screen.getByText("five.pdf")).toBeTruthy();
+    expect(screen.getByText(/Combined size 5 MB \/ 10 MB/u)).toBeTruthy();
   });
 
   it("renders separate employee and client role totals", async () => {
@@ -302,6 +339,7 @@ describe("account request and employee summary UI", () => {
           department: null,
           jobTitle: null,
           adminMessage: null,
+          attachments: [],
           attachment: null,
           status: "pending",
           createdAt: Date.UTC(2026, 0, 1, 0, 0) / 1_000,

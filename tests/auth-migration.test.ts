@@ -197,6 +197,53 @@ describe("account request optional-fields migration", () => {
         size_bytes: 1_024,
       });
 
+      const multipleAttachmentMigration = await readFile(
+        new URL(
+          "../migrations/0015_multiple_account_request_attachments.sql",
+          import.meta.url,
+        ),
+        "utf8",
+      );
+      await executeSqlScript(database, multipleAttachmentMigration);
+      await database
+        .prepare(
+          `INSERT INTO account_request_attachments (
+            id, account_request_id, storage_key, original_name,
+            content_type, size_bytes, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          "attachment-2",
+          "existing-request",
+          "account-requests/second-opaque-key",
+          "evidence.pdf",
+          "application/pdf",
+          2_048,
+          4,
+        )
+        .run();
+      const attachments = await database
+        .prepare(
+          `SELECT id, original_name, size_bytes
+           FROM account_request_attachments
+           WHERE account_request_id = ?
+           ORDER BY created_at`,
+        )
+        .bind("existing-request")
+        .all();
+      expect(attachments.results).toEqual([
+        {
+          id: "attachment-1",
+          original_name: "application.pdf",
+          size_bytes: 1_024,
+        },
+        {
+          id: "attachment-2",
+          original_name: "evidence.pdf",
+          size_bytes: 2_048,
+        },
+      ]);
+
       const foreignKeyProblems = await database
         .prepare("PRAGMA foreign_key_check")
         .all<Record<string, unknown>>();
