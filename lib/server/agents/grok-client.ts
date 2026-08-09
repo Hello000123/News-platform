@@ -44,7 +44,10 @@ const streamChunkSchema = z
   })
   .passthrough();
 
-export type CompletionStage = "review_request" | "rewrite_request";
+export type CompletionStage =
+  | "review_request"
+  | "rewrite_request"
+  | "company_summary_request";
 
 export interface CompletionRequest {
   stage: CompletionStage;

@@ -1720,6 +1720,215 @@ footer p {
   }
 }
 
+.client-detail {
+  display: grid;
+  gap: 20px;
+}
+
+.client-detail-profile,
+.client-summary-card,
+.client-news-card {
+  padding: clamp(22px, 4vw, 32px);
+}
+
+.client-detail-profile-heading,
+.client-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.client-detail-profile-heading h1 {
+  margin: 8px 0 5px;
+  overflow-wrap: anywhere;
+  color: var(--ink-strong);
+  font-size: clamp(30px, 5vw, 44px);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.client-detail-profile-heading a {
+  color: var(--blue-dark);
+  overflow-wrap: anywhere;
+}
+
+.client-section-heading {
+  margin-bottom: 18px;
+  align-items: center;
+}
+
+.client-section-heading h2 {
+  margin: 5px 0 0;
+  color: var(--ink-strong);
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.client-section-heading > strong {
+  color: var(--blue-dark);
+  font-variant-numeric: tabular-nums;
+}
+
+.client-summary-insufficient {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #ead18d;
+  border-radius: 11px;
+  background: var(--amber-soft);
+}
+
+.client-summary-insufficient strong {
+  color: var(--amber);
+}
+
+.client-summary-insufficient p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.client-summary-fields {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.client-summary-fields > div {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.client-summary-fields .client-summary-description {
+  grid-column: 1 / -1;
+}
+
+.client-summary-fields dt {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.client-summary-fields dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-strong);
+  line-height: 1.55;
+}
+
+.client-summary-meta,
+.client-news-ownership-note {
+  margin: 16px 0 0;
+  color: var(--subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.client-news-ownership-note {
+  margin: -5px 0 18px;
+}
+
+.client-news-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.client-news-table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.client-news-table th,
+.client-news-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.client-news-table th {
+  background: var(--surface-soft);
+  color: var(--subtle);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.client-news-table td {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.client-news-table td:first-child {
+  max-width: 360px;
+  overflow-wrap: anywhere;
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.client-news-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.client-news-pagination {
+  display: flex;
+  margin-top: 16px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.client-news-pagination span {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .admin-summary-batch-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-summary-batch-heading .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .client-detail-profile-heading,
+  .client-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .client-section-heading .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .client-summary-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .client-summary-fields .client-summary-description {
+    grid-column: auto;
+  }
+
+  .client-news-pagination {
+    justify-content: space-between;
+  }
+}
+
 .account-bar {
   display: flex;
   width: min(1120px, calc(100% - 40px));
@@ -2305,6 +2514,70 @@ footer p {
   gap: 12px;
 }
 
+.admin-summary-batch {
+  display: grid;
+  margin-bottom: 16px;
+  padding: 20px;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: var(--shadow-small);
+}
+
+.admin-summary-batch-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+
+.admin-summary-batch-heading h2 {
+  margin: 4px 0;
+  color: var(--ink-strong);
+  font-size: 19px;
+}
+
+.admin-summary-batch-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.admin-summary-batch-progress {
+  display: grid;
+  padding: 13px 14px;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-summary-batch-progress > strong {
+  color: var(--ink-strong);
+  font-size: 13px;
+}
+
+.admin-summary-batch-progress progress {
+  width: 100%;
+  height: 9px;
+  accent-color: var(--blue);
+}
+
+.admin-summary-batch-progress ul {
+  margin: 2px 0 0;
+  padding-left: 18px;
+}
+
+.admin-summary-batch-partial {
+  border-color: #efb9b2;
+  background: var(--red-soft);
+}
+
 .admin-usage-toolbar {
   display: flex;
   margin-bottom: 16px;
@@ -2498,6 +2771,20 @@ footer p {
 .admin-account-row .status-badge {
   grid-column: 2;
   grid-row: 1 / span 2;
+}
+
+.admin-account-row h2 .admin-client-name-link {
+  display: inline;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  grid-column: auto;
+  text-decoration: none;
+}
+
+.admin-account-row h2 .admin-client-name-link:hover {
+  color: var(--blue-dark);
+  text-decoration: underline;
 }
 
 .admin-account-suspension {

@@ -7,7 +7,9 @@ import { ClientRemovalDialog } from "@/components/employee/client-removal-dialog
 import { FeedManagement } from "@/components/employee/feed-management";
 import {
   AuthRequestError,
+  generateEmployeeClientSummary,
   getEmployeeAgentUsageThresholds,
+  listEmployeeClientSummaryTargets,
   listEmployeeAccountRequests,
   listEmployeeAccounts,
   updateEmployeeAgentUsageThresholds,
@@ -29,6 +31,15 @@ import {
 
 type AdminTab = "approval" | "clients" | "employees" | "feeds";
 type Filter = AccountRequestStatus | "all";
+
+interface SummaryBatchProgress {
+  status: "preparing" | "running" | "complete";
+  total: number;
+  completed: number;
+  succeeded: number;
+  currentClient: string | null;
+  failures: Array<{ clientName: string; message: string }>;
+}
 
 const ADMIN_TABS: Array<{ value: AdminTab; label: string }> = [
   { value: "approval", label: "Account Approval" },
@@ -70,8 +81,12 @@ function loadingLabel(tab: AdminTab) {
   return "Loading employee accounts";
 }
 
-export function ApprovalDashboard() {
-  const [activeTab, setActiveTab] = useState<AdminTab>("approval");
+export function ApprovalDashboard({
+  initialTab = "approval",
+}: {
+  initialTab?: AdminTab;
+}) {
+  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [filter, setFilter] = useState<Filter>("pending");
   const [requests, setRequests] = useState<AccountRequestView[]>([]);
   const [accounts, setAccounts] = useState<AccountListUserView[]>([]);
@@ -86,6 +101,9 @@ export function ApprovalDashboard() {
   >([]);
   const [thresholdSaving, setThresholdSaving] = useState(false);
   const [thresholdError, setThresholdError] = useState("");
+  const [summaryBatch, setSummaryBatch] = useState<SummaryBatchProgress | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState<{
@@ -194,6 +212,91 @@ export function ApprovalDashboard() {
       );
     } finally {
       setThresholdSaving(false);
+    }
+  }
+
+  async function generateAllClientSummaries() {
+    setSummaryBatch({
+      status: "preparing",
+      total: 0,
+      completed: 0,
+      succeeded: 0,
+      currentClient: null,
+      failures: [],
+    });
+    setNotice(null);
+    try {
+      const { clients } = await listEmployeeClientSummaryTargets();
+      if (clients.length === 0) {
+        setSummaryBatch({
+          status: "complete",
+          total: 0,
+          completed: 0,
+          succeeded: 0,
+          currentClient: null,
+          failures: [],
+        });
+        return;
+      }
+      let completed = 0;
+      let succeeded = 0;
+      const failures: SummaryBatchProgress["failures"] = [];
+      for (const client of clients) {
+        setSummaryBatch({
+          status: "running",
+          total: clients.length,
+          completed,
+          succeeded,
+          currentClient: client.fullName,
+          failures: [...failures],
+        });
+        try {
+          await generateEmployeeClientSummary(client.id);
+          succeeded += 1;
+        } catch (error) {
+          failures.push({
+            clientName: client.fullName,
+            message:
+              error instanceof AuthRequestError
+                ? error.message
+                : "Summary generation failed.",
+          });
+        }
+        completed += 1;
+        setSummaryBatch({
+          status: "running",
+          total: clients.length,
+          completed,
+          succeeded,
+          currentClient: null,
+          failures: [...failures],
+        });
+      }
+      setSummaryBatch({
+        status: "complete",
+        total: clients.length,
+        completed,
+        succeeded,
+        currentClient: null,
+        failures,
+      });
+    } catch (error) {
+      setSummaryBatch({
+        status: "complete",
+        total: 0,
+        completed: 0,
+        succeeded: 0,
+        currentClient: null,
+        failures: [
+          {
+            clientName: "Client batch",
+            message:
+              error instanceof AuthRequestError
+                ? error.message
+                : "The client summary batch could not be started.",
+          },
+        ],
+      });
     }
   }
 
@@ -377,6 +480,79 @@ export function ApprovalDashboard() {
         >
           {activeTab === "clients" ? (
             <>
+              <section className="admin-summary-batch" aria-labelledby="summary-batch-title">
+                <div className="admin-summary-batch-heading">
+                  <div>
+                    <span className="section-kicker">Company intelligence</span>
+                    <h2 id="summary-batch-title">Client company summaries</h2>
+                    <p>
+                      Generate evidence-bound summaries sequentially for every active client.
+                      Existing summaries are safely replaced instead of duplicated.
+                    </p>
+                  </div>
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    disabled={
+                      summaryBatch?.status === "preparing" ||
+                      summaryBatch?.status === "running"
+                    }
+                    onClick={() => void generateAllClientSummaries()}
+                  >
+                    {summaryBatch?.status === "preparing" ||
+                    summaryBatch?.status === "running"
+                      ? "Generating summaries…"
+                      : "Generate All Client Summaries"}
+                  </button>
+                </div>
+                {summaryBatch ? (
+                  <div
+                    className={`admin-summary-batch-progress ${
+                      summaryBatch.status === "complete" && summaryBatch.failures.length > 0
+                        ? "admin-summary-batch-partial"
+                        : ""
+                    }`}
+                    role={
+                      summaryBatch.status === "complete" && summaryBatch.failures.length > 0
+                        ? "alert"
+                        : "status"
+                    }
+                    aria-live="polite"
+                  >
+                    <strong>
+                      {summaryBatch.status === "preparing"
+                        ? "Preparing the client list…"
+                        : summaryBatch.status === "running"
+                          ? `${summaryBatch.completed} of ${summaryBatch.total} completed`
+                          : summaryBatch.total === 0 && summaryBatch.failures.length === 0
+                            ? "No active clients require summaries."
+                            : summaryBatch.failures.length === 0
+                              ? `All ${summaryBatch.succeeded} client summaries completed successfully.`
+                              : `${summaryBatch.succeeded} of ${summaryBatch.total} summaries completed; ${summaryBatch.failures.length} failed.`}
+                    </strong>
+                    {summaryBatch.total > 0 ? (
+                      <progress
+                        max={summaryBatch.total}
+                        value={summaryBatch.completed}
+                        aria-label="Client summary generation progress"
+                      />
+                    ) : null}
+                    {summaryBatch.currentClient ? (
+                      <span>Generating {summaryBatch.currentClient}</span>
+                    ) : null}
+                    {summaryBatch.failures.length > 0 ? (
+                      <ul>
+                        {summaryBatch.failures.slice(0, 5).map((failure) => (
+                          <li key={`${failure.clientName}:${failure.message}`}>
+                            <strong>{failure.clientName}:</strong> {failure.message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
               <div className="admin-usage-toolbar">
                 <div>
                   <label htmlFor="admin-usage-period">AI usage period</label>
@@ -525,7 +701,18 @@ export function ApprovalDashboard() {
               {accounts.map((account) => (
                 <article className="admin-account-row" key={account.id}>
                   <div>
-                    <h2>{account.fullName}</h2>
+                    <h2>
+                      {activeTab === "clients" ? (
+                        <Link
+                          className="admin-client-name-link"
+                          href={`/employee/clients/${encodeURIComponent(account.id)}`}
+                        >
+                          {account.fullName}
+                        </Link>
+                      ) : (
+                        account.fullName
+                      )}
+                    </h2>
                     <a href={`mailto:${account.email}`}>{account.email}</a>
                     <span className={`status-badge status-${account.status}`}>
                       {account.status === "setup_pending"

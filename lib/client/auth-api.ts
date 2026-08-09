@@ -16,6 +16,11 @@ import type {
   PasswordDerivation,
   PasswordSetupFormInput,
 } from "@/lib/shared/auth-contracts";
+import type {
+  ClientCompanySummaryView,
+  ClientDetailView,
+  ClientSummaryTargetView,
+} from "@/lib/shared/client-summaries";
 import { derivePasswordProof } from "@/lib/client/password-proof";
 import {
   DEFAULT_AGENT_USAGE_PERIOD,
@@ -265,5 +270,27 @@ export function removeClientAccount(id: string, input: ClientRemovalInput) {
     `/api/employee/accounts/${encodeURIComponent(id)}/remove`,
     input,
     true,
+  );
+}
+
+export function getEmployeeClientDetail(id: string, page = 1) {
+  return requestJson<{ detail: ClientDetailView }>(
+    `/api/employee/clients/${encodeURIComponent(id)}?page=${encodeURIComponent(page)}`,
+    { method: "GET" },
+  );
+}
+
+export function generateEmployeeClientSummary(id: string) {
+  return postJson<{ summary: ClientCompanySummaryView }>(
+    `/api/employee/clients/${encodeURIComponent(id)}/summary`,
+    {},
+    true,
+  );
+}
+
+export function listEmployeeClientSummaryTargets() {
+  return requestJson<{ clients: ClientSummaryTargetView[] }>(
+    "/api/employee/client-summaries/targets",
+    { method: "GET" },
   );
 }

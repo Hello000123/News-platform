@@ -332,7 +332,13 @@ export const apiErrorResponseSchema = z
           .optional(),
         suspensionThreshold: z.number().int().positive().optional(),
         suspensionObservedCount: z.number().int().positive().optional(),
-        stage: z.enum(["review_request", "rewrite_request"]).optional(),
+        stage: z
+          .enum([
+            "review_request",
+            "rewrite_request",
+            "company_summary_request",
+          ])
+          .optional(),
         provider: z.string().trim().min(1).max(80).optional(),
         model: z.string().trim().min(1).max(120).optional(),
         httpStatus: z.number().int().min(0).max(599).optional(),

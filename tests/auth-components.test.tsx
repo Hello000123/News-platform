@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   listEmployeeAccounts: vi.fn(),
   getEmployeeAgentUsageThresholds: vi.fn(),
   updateEmployeeAgentUsageThresholds: vi.fn(),
+  listEmployeeClientSummaryTargets: vi.fn(),
+  generateEmployeeClientSummary: vi.fn(),
   removeClientAccount: vi.fn(),
   submitAccountRequest: vi.fn(),
   decideAccountRequest: vi.fn(),
@@ -38,6 +40,8 @@ vi.mock("@/lib/client/auth-api", () => ({
   listEmployeeAccounts: mocks.listEmployeeAccounts,
   getEmployeeAgentUsageThresholds: mocks.getEmployeeAgentUsageThresholds,
   updateEmployeeAgentUsageThresholds: mocks.updateEmployeeAgentUsageThresholds,
+  listEmployeeClientSummaryTargets: mocks.listEmployeeClientSummaryTargets,
+  generateEmployeeClientSummary: mocks.generateEmployeeClientSummary,
   removeClientAccount: mocks.removeClientAccount,
   decideAccountRequest: mocks.decideAccountRequest,
   resendSetupEmail: mocks.resendSetupEmail,
@@ -58,6 +62,8 @@ const thresholdRules = [
 }));
 
 beforeEach(() => {
+  mocks.listEmployeeClientSummaryTargets.mockResolvedValue({ clients: [] });
+  mocks.generateEmployeeClientSummary.mockResolvedValue({ summary: {} });
   mocks.getEmployeeAgentUsageThresholds.mockResolvedValue({
     rules: thresholdRules.map((rule) => ({ ...rule })),
   });
@@ -448,6 +454,78 @@ describe("account request and employee summary UI", () => {
     expect(
       await screen.findByText("Automatic AI usage suspension thresholds were saved."),
     ).toBeTruthy();
+  });
+
+  it("links client names to details and reports partial batch-summary completion", async () => {
+    const user = userEvent.setup();
+    mocks.listEmployeeAccounts.mockResolvedValue({
+      accounts: [
+        {
+          id: "client-one",
+          email: "one@example.test",
+          fullName: "Client One",
+          role: "client",
+          status: "active",
+          createdAt: 1,
+          reviewRequestCount: 0,
+          rewriteRequestCount: 0,
+          periodRequestCount: 0,
+          periodReviewRequestCount: 0,
+          periodRewriteRequestCount: 0,
+          aiSuspension: null,
+        },
+        {
+          id: "client-two",
+          email: "two@example.test",
+          fullName: "Client Two",
+          role: "client",
+          status: "active",
+          createdAt: 1,
+          reviewRequestCount: 0,
+          rewriteRequestCount: 0,
+          periodRequestCount: 0,
+          periodReviewRequestCount: 0,
+          periodRewriteRequestCount: 0,
+          aiSuspension: null,
+        },
+      ],
+      summary: { employeeAccounts: 1, clientAccounts: 2 },
+      usagePeriod: {
+        period: "lifetime",
+        label: "Lifetime",
+        startAt: null,
+        endAt: 1_800_000_000,
+        timeZone: "Asia/Hong_Kong",
+        trackingStartedAt: 1_700_000_000,
+        isComplete: true,
+      },
+    });
+    mocks.listEmployeeClientSummaryTargets.mockResolvedValue({
+      clients: [
+        { id: "client-one", fullName: "Client One", hasSummary: false },
+        { id: "client-two", fullName: "Client Two", hasSummary: true },
+      ],
+    });
+    mocks.generateEmployeeClientSummary
+      .mockResolvedValueOnce({ summary: {} })
+      .mockRejectedValueOnce(new Error("Provider timeout"));
+
+    render(<ApprovalDashboard initialTab="clients" />);
+
+    const clientLink = await screen.findByRole("link", { name: "Client One" });
+    expect(clientLink.getAttribute("href")).toBe("/employee/clients/client-one");
+    await user.click(
+      screen.getByRole("button", { name: "Generate All Client Summaries" }),
+    );
+
+    expect(
+      await screen.findByText("1 of 2 summaries completed; 1 failed."),
+    ).toBeTruthy();
+    expect(screen.getByText(/Client Two:/u)).toBeTruthy();
+    expect(mocks.generateEmployeeClientSummary.mock.calls.map(([id]) => id)).toEqual([
+      "client-one",
+      "client-two",
+    ]);
   });
 
   it("cancels client removal without calling the API", async () => {

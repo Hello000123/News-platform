@@ -85,6 +85,7 @@ describe("feeds repository", () => {
       "0011_pipeline_article_categories.sql",
       "0012_pipeline_rewrite_debug_logs.sql",
       "0013_pipeline_rewrite_commits.sql",
+      "0018_client_company_summaries.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);
@@ -881,6 +882,7 @@ describe("feed pipeline ingestion", () => {
       "0008_pipeline_article_merges.sql",
       "0010_pipeline_article_publication.sql",
       "0011_pipeline_article_categories.sql",
+      "0018_client_company_summaries.sql",
       "0012_pipeline_rewrite_debug_logs.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");

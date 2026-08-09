@@ -181,6 +181,30 @@ the saved presentation model. The server validates every save against the exact
 article text; **Save Changes** keeps a private draft and **Publish** promotes the
 validated draft through the existing `approved` publication state.
 
+Employees can open a client name from the **Client Accounts** tab to view a
+dedicated client profile, a server-paginated list of verified published news,
+and a structured company summary. **Generate Summary**, **Regenerate Summary**,
+and **Generate All Client Summaries** call the currently configured server-side
+AI provider; browser code never receives a provider credential. Only the
+profile's company, department, and job-title fields plus titles and bounded
+excerpts from that client's public news are sent for this purpose. Personal
+names, email addresses, phone numbers, supporting documents, drafts, and
+unpublished content are excluded from the AI payload. Returned JSON is checked
+against a strict schema before a single per-client summary row is inserted or
+updated. Clients without enough evidence receive an explicit insufficient-
+information result instead of invented fields.
+
+Migration `0018_client_company_summaries.sql` begins recording the authenticated
+publisher whenever an article first moves into the live `approved` state. The
+client-detail news list uses that server-verified relationship and never trusts
+the browser's client ID as ownership evidence. Existing live articles are not
+assigned retroactively because the older schema did not retain a reliable
+publisher identity; their public availability is unchanged, but they will not
+appear under a client until a later authenticated publication transition records
+ownership. Summary generation uses the existing `AI_MODEL` and matching
+server-only provider configuration, so it introduces no new environment
+variables.
+
 Apply the latest D1 migration before using the publishing workflow:
 
     npm run db:migrate:local

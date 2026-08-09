@@ -167,12 +167,14 @@ export function rewriteDebugFailureFields(error: unknown) {
   }
 
   const quotationIssues = error.publicDetails?.quotationIssues ?? [];
+  const stage = error.publicDetails?.stage;
   return {
     errorCode: error.code,
     errorMessage: error.publicMessage,
     errorDetails: error.publicDetails?.details ?? [],
     retryable: error.publicDetails?.retryable ?? null,
-    stage: error.publicDetails?.stage ?? null,
+    stage:
+      stage === "review_request" || stage === "rewrite_request" ? stage : null,
     provider: error.publicDetails?.provider ?? null,
     providerModel: error.publicDetails?.model ?? null,
     providerHttpStatus: error.publicDetails?.httpStatus ?? null,

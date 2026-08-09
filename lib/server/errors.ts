@@ -4,7 +4,7 @@ import type { AgentSuspensionPeriod } from "@/lib/shared/agent-usage";
 export interface PublicErrorDetails {
   details?: string[];
   retryable?: boolean;
-  stage?: "review_request" | "rewrite_request";
+  stage?: "review_request" | "rewrite_request" | "company_summary_request";
   provider?: string;
   model?: string;
   httpStatus?: number;

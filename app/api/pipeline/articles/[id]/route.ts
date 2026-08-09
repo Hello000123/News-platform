@@ -17,7 +17,9 @@ interface RouteContext {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    await requireApiSession(request, ["client", "employee"], { csrf: true });
+    const session = await requireApiSession(request, ["client", "employee"], {
+      csrf: true,
+    });
     const { id } = await context.params;
     const input = pipelineArticlePostUpdateSchema.parse(await readJsonRequest(request));
     const database = getDatabase();
@@ -42,7 +44,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         409,
       );
     }
-    const changed = await updatePipelineArticlePost(database, id, input);
+    const changed = await updatePipelineArticlePost(
+      database,
+      id,
+      input,
+      session.user.id,
+    );
     if (!changed) {
       throw new AppError(
         "ARTICLE_UPDATE_CONFLICT",

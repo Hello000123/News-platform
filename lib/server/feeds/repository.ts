@@ -746,6 +746,10 @@ export async function commitPipelineArticleRewrite(
       `UPDATE pipeline_articles
        SET status = ?,
            rewritten_text = ?,
+           published_by_user_id = CASE
+             WHEN ? = 'approved' AND status != 'approved' THEN ?
+             ELSE published_by_user_id
+           END,
            published_at = CASE
              WHEN ? = 'approved' AND status != 'approved' THEN ?
              ELSE published_at
@@ -757,6 +761,8 @@ export async function commitPipelineArticleRewrite(
     .bind(
       input.status,
       input.rewrittenText,
+      input.status,
+      input.requestedByUserId,
       input.status,
       now,
       now,
@@ -790,12 +796,18 @@ export async function updatePipelineArticleStatus(
   database: D1Database,
   articleId: string,
   status: PipelineArticleStatus,
+  publishedByUserId?: string,
 ) {
   const now = nowInSeconds();
   const result = await database
     .prepare(
       `UPDATE pipeline_articles
        SET status = ?,
+           published_by_user_id = CASE
+             WHEN ? = 'approved' AND status != 'approved'
+               THEN COALESCE(?, published_by_user_id)
+             ELSE published_by_user_id
+           END,
            published_at = CASE
              WHEN ? = 'approved' AND status != 'approved' THEN ?
              ELSE published_at
@@ -803,7 +815,7 @@ export async function updatePipelineArticleStatus(
            updated_at = ?
        WHERE id = ?`,
     )
-    .bind(status, status, now, now, articleId)
+    .bind(status, status, publishedByUserId ?? null, status, now, now, articleId)
     .run();
   return result.meta.changes > 0;
 }
@@ -812,6 +824,7 @@ export async function updatePipelineArticlePost(
   database: D1Database,
   articleId: string,
   input: PipelineArticlePostUpdate,
+  publishedByUserId?: string,
 ) {
   const assignments: string[] = [];
   const values: Array<string | number | null> = [];
@@ -838,6 +851,10 @@ export async function updatePipelineArticlePost(
     assignments.push("status = ?");
     values.push(input.status);
     assignments.push(
+      "published_by_user_id = CASE WHEN ? = 'approved' AND status != 'approved' THEN COALESCE(?, published_by_user_id) ELSE published_by_user_id END",
+    );
+    values.push(input.status, publishedByUserId ?? null);
+    assignments.push(
       "published_at = CASE WHEN ? = 'approved' AND status != 'approved' THEN ? ELSE published_at END",
     );
     values.push(input.status, now);
@@ -862,6 +879,7 @@ export async function setPipelineArticleRewritten(
   rewrittenText: string,
   status: "rewritten" | "approved" = "rewritten",
   precondition?: Pick<PipelineArticleView, "status" | "updatedAt" | "rewrittenText">,
+  publishedByUserId?: string,
 ) {
   const now = nowInSeconds();
   const where = precondition
@@ -879,6 +897,11 @@ export async function setPipelineArticleRewritten(
       `UPDATE pipeline_articles
        SET status = ?,
            rewritten_text = ?,
+           published_by_user_id = CASE
+             WHEN ? = 'approved' AND status != 'approved'
+               THEN COALESCE(?, published_by_user_id)
+             ELSE published_by_user_id
+           END,
            published_at = CASE
              WHEN ? = 'approved' AND status != 'approved' THEN ?
              ELSE published_at
@@ -886,7 +909,16 @@ export async function setPipelineArticleRewritten(
            updated_at = ?
        WHERE ${where}`,
     )
-    .bind(status, rewrittenText, status, now, now, ...whereValues)
+    .bind(
+      status,
+      rewrittenText,
+      status,
+      publishedByUserId ?? null,
+      status,
+      now,
+      now,
+      ...whereValues,
+    )
     .run();
   return result.meta.changes > 0;
 }

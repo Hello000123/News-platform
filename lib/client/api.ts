@@ -56,7 +56,7 @@ export class ApiRequestError extends Error {
         | "last_24_hours";
       suspensionThreshold?: number;
       suspensionObservedCount?: number;
-      stage?: "review_request" | "rewrite_request";
+      stage?: "review_request" | "rewrite_request" | "company_summary_request";
       provider?: string;
       model?: string;
       httpStatus?: number;

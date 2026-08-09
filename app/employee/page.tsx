@@ -9,8 +9,17 @@ export const metadata = {
   title: "Admin Panel | PressReady",
 };
 
-export default async function EmployeeApprovalPage() {
+interface PageProps {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}
+
+export default async function EmployeeApprovalPage({ searchParams }: PageProps) {
   const session = await requirePageSession("/employee", ["employee"]);
+  const query = await searchParams;
+  const initialTab =
+    query.tab === "clients" || query.tab === "employees" || query.tab === "feeds"
+      ? query.tab
+      : "approval";
   return (
     <div className="editorial-admin">
       <AccountBar user={session.user} />
@@ -31,7 +40,7 @@ export default async function EmployeeApprovalPage() {
               </Link>
             </div>
           </div>
-          <ApprovalDashboard />
+          <ApprovalDashboard initialTab={initialTab} />
         </div>
       </main>
     </div>
