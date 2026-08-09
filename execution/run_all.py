@@ -49,7 +49,24 @@ def mark_seen(conn, source, article_id):
 
 
 def merge_non_empty(target, scraped):
+    existing_body = str(target.get("content_text") or "").strip() or utils.html_to_text(
+        target.get("content_html", "")
+    )
+    scraped_body = str(scraped.get("content_text") or "").strip() or utils.html_to_text(
+        scraped.get("content_html", "")
+    )
+    existing_length = len(re.sub(r"\s+", "", existing_body))
+    scraped_length = len(re.sub(r"\s+", "", scraped_body))
+    if scraped_body and scraped_length > existing_length:
+        target["content_text"] = scraped_body
+        if str(scraped.get("content_html") or "").strip():
+            target["content_html"] = scraped["content_html"]
+    elif existing_body:
+        target["content_text"] = existing_body
+
     for key, value in scraped.items():
+        if key in ("content_html", "content_text"):
+            continue
         if value is not None and (not isinstance(value, str) or value.strip()):
             target[key] = value
 
@@ -71,6 +88,10 @@ def normalize_item(source_key, item):
     ]
     if missing:
         raise ValueError(f"missing {', '.join(missing)}")
+    comparable_title = re.sub(r"[^\w]+", "", title, flags=re.UNICODE).casefold()
+    comparable_body = re.sub(r"[^\w]+", "", content_text, flags=re.UNICODE).casefold()
+    if comparable_title and comparable_body == comparable_title:
+        raise ValueError("article text only repeats the title")
     return {
         "id": f"{source_key}-{article_id}",
         "article_id": article_id,

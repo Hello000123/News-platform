@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import feedparser
 
-from utils import fetch_text
+from utils import fetch_text, html_to_text
 
 
 def _iso(entry):
@@ -34,8 +34,16 @@ def parse_feed_text(text, feed_url, max_items=20):
         raise RuntimeError(f"Could not parse feed for {feed_url}: {feed.bozo_exception}")
     items = []
     for entry in feed.entries[:max_items]:
-        content = entry.get("content")
-        content_html = content[0].get("value", "") if content else entry.get("summary", "")
+        content_values = [
+            candidate.get("value", "")
+            for candidate in entry.get("content", [])
+            if candidate.get("value", "").strip()
+        ]
+        content_html = (
+            max(content_values, key=lambda value: len(html_to_text(value)))
+            if content_values
+            else entry.get("summary", "")
+        )
         items.append(
             {
                 "id": entry.get("id") or entry.get("guid") or entry.get("link"),

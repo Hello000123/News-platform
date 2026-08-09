@@ -62,12 +62,15 @@ export class SourceContextError extends Error {
 }
 
 const DEFAULT_LIMITS: SourceContextLimits = Object.freeze({
-  timeoutMs: 8_000,
-  maxResponseBytes: 1_500_000,
+  timeoutMs: 15_000,
+  // Modern publisher pages routinely include 2-4 MB of inline application
+  // state even when the readable article is small. Keep the existing hard
+  // ceiling, but do not reject those pages before extraction can discard it.
+  maxResponseBytes: 5_000_000,
   maxRedirects: 3,
   maxDraftChars: 24_000,
   maxTitleChars: 500,
-  maxArticleChars: 32_000,
+  maxArticleChars: 50_000,
   maxImageContextChars: 8_000,
   maxCombinedChars: 66_000,
 });
@@ -126,9 +129,10 @@ const BLOCK_TAGS = new Set([
   "th",
   "tr",
 ]);
-const ARTICLE_BLOCK_TAGS = new Set(["p", "blockquote", "h2", "h3"]);
+const ARTICLE_BLOCK_TAGS = new Set(["p", "blockquote", "h2", "h3", "h4", "li", "pre"]);
+const STRUCTURAL_CONTAINER_TAGS = new Set(["root", "html", "body", "main"]);
 const POSITIVE_CONTAINER_PATTERN = /(?:^|[-_\s])(article|articlecontent|articlebody|article-body|content|entry|news|post|story|storycontent|text)(?:$|[-_\s])/i;
-const STRONG_ARTICLE_CONTAINER_PATTERN = /(?:articlecontent|articlebody|article-body|storycontent)/i;
+const STRONG_ARTICLE_CONTAINER_PATTERN = /(?:(?:article|entry|post|story)[-_\s]*(?:body|content)|caas[-_\s]*body)/i;
 const UNWANTED_CONTAINER_PATTERN = /(?:^|[-_\s])(ad|ads|advert|advertisement|articleurl|banner|breadcrumb|cookie|footer|footerads|header|list|menu|miscPanel|nav|newsletter|popup|promo|recommend|related|share|shareandtool|sidebar|social|sponsor)(?:$|[-_\s])/i;
 const GENERIC_IMAGE_TEXT = /^(?:image|photo|picture|thumbnail|logo|icon|avatar|banner|advertisement|廣告|广告|圖片|图片|照片|圖像|图像)$/iu;
 
@@ -612,16 +616,31 @@ function extractHtmlSource(
   html: string,
   limits: SourceContextLimits,
 ): Pick<SourceContextSnapshot, "title" | "articleText" | "imageContext"> {
+  const structuredBodies = extractStructuredArticleBodies(html);
   const root = parseHtml(html);
   const candidate = chooseArticleContainer(root);
-  const title = normalizeAndCap(findTitle(root, candidate), limits.maxTitleChars);
+  const rawTitle = normalizeText(findTitle(root, candidate));
+  const title = normalizeAndCap(rawTitle, limits.maxTitleChars);
   const blocks = collectArticleBlocks(candidate)
     .map((block) => normalizeText(block))
-    .filter((block) => block.length > 0 && block !== title);
+    .filter((block) => block.length > 0 && block !== rawTitle && block !== title);
   const dedupedBlocks = dedupe(blocks);
-  const fallback = normalizeText(renderedText(candidate));
+  const structured = normalizeText(dedupedBlocks.join("\n\n"));
+  const fallback = dedupe(
+    stripLeadingTitle(normalizeText(renderedText(candidate)), rawTitle)
+      .split(/\n+/u)
+      .map((block) => normalizeText(block))
+      .filter(Boolean),
+  ).join("\n\n");
+  const articleCandidates = [structured, fallback, ...structuredBodies]
+    .map((value) => stripLeadingTitle(normalizeText(value), rawTitle))
+    .filter(Boolean);
+  const fullestArticle = articleCandidates.reduce(
+    (fullest, current) => (Array.from(current).length > Array.from(fullest).length ? current : fullest),
+    "",
+  );
   const articleText = normalizeAndCap(
-    dedupedBlocks.length > 0 ? dedupedBlocks.join("\n\n") : fallback,
+    fullestArticle,
     limits.maxArticleChars,
   );
   const imageContext = normalizeAndCap(
@@ -629,6 +648,69 @@ function extractHtmlSource(
     limits.maxImageContextChars,
   );
   return { title, articleText, imageContext };
+}
+
+function extractStructuredArticleBodies(html: string): string[] {
+  const bodies: string[] = [];
+  const scriptPattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/giu;
+  let match: RegExpExecArray | null;
+
+  while ((match = scriptPattern.exec(html)) !== null && bodies.length < 16) {
+    const attributes = parseAttributes(match[1] ?? "");
+    if ((attributes.type ?? "").toLowerCase().split(";", 1)[0].trim() !== "application/ld+json") {
+      continue;
+    }
+    const rawJson = (match[2] ?? "")
+      .replace(/^\s*<!--|-->\s*$/gu, "")
+      .replace(/^\s*<!\[CDATA\[|\]\]>\s*$/gu, "")
+      .trim();
+    if (!rawJson) continue;
+
+    try {
+      collectArticleBodyValues(JSON.parse(rawJson) as unknown, bodies);
+    } catch {
+      // Invalid publisher metadata must not prevent normal DOM extraction.
+    }
+  }
+
+  return dedupe(bodies.map(normalizeEmbeddedArticleBody).filter(Boolean));
+}
+
+function collectArticleBodyValues(value: unknown, bodies: string[], depth = 0): void {
+  if (depth > 20 || bodies.length >= 16 || !value) return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectArticleBodyValues(item, bodies, depth + 1);
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key.toLowerCase() === "articlebody" && typeof child === "string") {
+      bodies.push(child);
+    } else {
+      collectArticleBodyValues(child, bodies, depth + 1);
+    }
+  }
+}
+
+function normalizeEmbeddedArticleBody(value: string): string {
+  const withBreaks = decodeHtmlEntitiesRepeatedly(value)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/giu, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/giu, " ")
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/<\/(?:blockquote|div|h[1-6]|li|p|pre|section)>/giu, "\n\n")
+    .replace(/<[^>]+>/gu, " ");
+  return normalizeText(withBreaks);
+}
+
+function stripLeadingTitle(value: string, title: string): string {
+  if (!value || !title) return value;
+  if (value === title) return "";
+  if (!value.startsWith(title)) return value;
+  const remainder = value.slice(title.length);
+  return /^[\s\n:：|｜\-–—]+/u.test(remainder)
+    ? remainder.replace(/^[\s\n:：|｜\-–—]+/u, "").trim()
+    : value;
 }
 
 function parseHtml(html: string): ElementNode {
@@ -685,8 +767,14 @@ function parseAttributes(source: string): Readonly<Record<string, string>> {
 }
 
 function chooseArticleContainer(root: ElementNode): ElementNode {
-  let best = root;
-  let bestScore = -Infinity;
+  const candidates: Array<{
+    node: ElementNode;
+    textLength: number;
+    paragraphCount: number;
+    punctuationCount: number;
+    linkChars: number;
+    attributes: string;
+  }> = [];
 
   walkElements(root, (node) => {
     if (!isUsableElement(node)) return false;
@@ -699,16 +787,40 @@ function chooseArticleContainer(root: ElementNode): ElementNode {
     const paragraphCount = countDescendants(node, (item) => item.tag === "p");
     const punctuationCount = (text.match(/[。！？.!?]/g) ?? []).length;
     const linkChars = descendantTextLength(node, "a");
+    candidates.push({
+      node,
+      textLength: text.length,
+      paragraphCount,
+      punctuationCount,
+      linkChars,
+      attributes,
+    });
+    return true;
+  });
+
+  const fullestLength = candidates.reduce(
+    (maximum, { textLength }) => Math.max(maximum, textLength),
+    1,
+  );
+  let best = root;
+  let bestScore = -Infinity;
+  for (const candidate of candidates) {
+    const { node, textLength, paragraphCount, punctuationCount, linkChars, attributes } =
+      candidate;
     const tagBonus = node.tag === "article" ? 2_800 : node.tag === "main" ? 2_000 : 0;
     const itemPropBonus = /articlebody/i.test(node.attributes.itemprop ?? "") ? 3_000 : 0;
-    const attributeBonus = STRONG_ARTICLE_CONTAINER_PATTERN.test(attributes)
-      ? 6_000
+    const hasCredibleStrongIdentity =
+      STRONG_ARTICLE_CONTAINER_PATTERN.test(attributes) &&
+      (textLength >= 120 || paragraphCount >= 2) &&
+      textLength >= fullestLength * 0.1;
+    const attributeBonus = hasCredibleStrongIdentity
+      ? 20_000
       : POSITIVE_CONTAINER_PATTERN.test(attributes)
         ? 1_300
         : 0;
-    const linkPenalty = text.length > 0 ? (linkChars / text.length) * 2_000 : 0;
+    const linkPenalty = textLength > 0 ? (linkChars / textLength) * 2_000 : 0;
     const score =
-      Math.min(text.length, 20_000) +
+      Math.min(textLength, 20_000) +
       paragraphCount * 180 +
       Math.min(punctuationCount, 100) * 20 +
       tagBonus +
@@ -719,8 +831,7 @@ function chooseArticleContainer(root: ElementNode): ElementNode {
       best = node;
       bestScore = score;
     }
-    return true;
-  });
+  }
   return best;
 }
 
@@ -816,6 +927,10 @@ function isUsableElement(node: ElementNode): boolean {
   if ("hidden" in node.attributes || node.attributes["aria-hidden"] === "true") return false;
   const role = (node.attributes.role ?? "").toLowerCase();
   if (["banner", "complementary", "contentinfo", "navigation"].includes(role)) return false;
+  // Publisher themes commonly put state classes such as
+  // `desktop-fixed-header` or `tdc-footer-template` on <body>. Those describe
+  // the page layout; they do not make every descendant header/footer content.
+  if (STRUCTURAL_CONTAINER_TAGS.has(node.tag)) return true;
   const identity = `${node.attributes.id ?? ""} ${node.attributes.class ?? ""}`;
   return !UNWANTED_CONTAINER_PATTERN.test(identity);
 }
@@ -870,10 +985,27 @@ function buildCombinedText(
 
 function decodeHtmlEntities(value: string): string {
   const named: Readonly<Record<string, string>> = {
+    aacute: "á",
+    acirc: "â",
+    aelig: "æ",
+    agrave: "à",
     amp: "&",
+    aring: "å",
+    atilde: "ã",
+    auml: "ä",
     apos: "'",
+    ccedil: "ç",
+    copy: "©",
+    eacute: "é",
+    ecirc: "ê",
+    egrave: "è",
+    euml: "ë",
     gt: ">",
     hellip: "…",
+    iacute: "í",
+    icirc: "î",
+    igrave: "ì",
+    iuml: "ï",
     laquo: "«",
     ldquo: "“",
     lsquo: "‘",
@@ -882,16 +1014,41 @@ function decodeHtmlEntities(value: string): string {
     middot: "·",
     nbsp: " ",
     ndash: "–",
+    ntilde: "ñ",
+    oacute: "ó",
+    ocirc: "ô",
+    ograve: "ò",
+    oslash: "ø",
+    otilde: "õ",
+    ouml: "ö",
     quot: '"',
     raquo: "»",
     rdquo: "”",
+    reg: "®",
     rsquo: "’",
+    trade: "™",
+    uacute: "ú",
+    ucirc: "û",
+    ugrave: "ù",
+    uuml: "ü",
+    yacute: "ý",
+    yuml: "ÿ",
   };
   return value.replace(/&(?:#(\d+)|#x([0-9a-f]+)|([a-z][a-z0-9]+));/gi, (entity, decimal, hex, name) => {
     if (decimal) return safeCodePoint(Number.parseInt(decimal, 10), entity);
     if (hex) return safeCodePoint(Number.parseInt(hex, 16), entity);
     return named[String(name).toLowerCase()] ?? entity;
   });
+}
+
+function decodeHtmlEntitiesRepeatedly(value: string): string {
+  let decoded = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const next = decodeHtmlEntities(decoded);
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
 }
 
 function safeCodePoint(codePoint: number, fallback: string): string {

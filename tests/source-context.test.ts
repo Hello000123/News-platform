@@ -123,6 +123,138 @@ describe("source context", () => {
     expect(context.articleText).not.toContain("Article link");
   });
 
+  it("keeps article descendants when publisher theme state classes mention headers or footers", async () => {
+    const html = `
+      <html><head><title>Publisher shell title</title></head>
+        <body class="desktop-fixed-header tdc-footer-template has-sidebar">
+          <header>Publisher navigation</header>
+          <article class="td-post-content">
+            <h1>Complete publisher report</h1>
+            <p>The opening paragraph identifies the event, location, and date.</p>
+            <p>The second paragraph contains the full supporting detail that used to disappear.</p>
+          </article>
+          <footer>Footer links</footer>
+        </body>
+      </html>`;
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/full-report" },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(response(html)) as unknown as typeof fetch,
+        dnsLookup: publicDns,
+      },
+    );
+
+    expect(context.title).toBe("Complete publisher report");
+    expect(context.articleText).toContain("The opening paragraph identifies the event");
+    expect(context.articleText).toContain("the full supporting detail that used to disappear");
+    expect(context.articleText).not.toMatch(/Publisher navigation|Footer links/);
+  });
+
+  it("uses fuller fallback text when paragraph-only extraction omits article blocks", async () => {
+    const html = `<html><body><article>
+      <h1>Product update</h1>
+      <p>The introductory paragraph is available.</p>
+      <div class="facts">The complete specifications and release timetable are written directly in this block.</div>
+      <ul><li>Availability starts on Tuesday.</li><li>The launch covers three markets.</li></ul>
+    </article></body></html>`;
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/product" },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(response(html)) as unknown as typeof fetch,
+        dnsLookup: publicDns,
+      },
+    );
+
+    expect(context.articleText).toContain("complete specifications and release timetable");
+    expect(context.articleText).toContain("Availability starts on Tuesday");
+    expect(context.articleText).not.toMatch(/^Product update/u);
+  });
+
+  it("prefers an explicit article-body container over comments and recirculation inside article", async () => {
+    const html = `<html><body><article class="review-article">
+      <h1>Router review</h1>
+      <div id="article-body" class="text-copy bodyCopy">
+        <p>The complete review explains the product design and setup.</p>
+        <p>The final verdict records performance, limitations, and price.</p>
+      </div>
+      <section class="content-wrapper viafoura-twig-component"><p>Please logout and login again.</p></section>
+      <section class="popular-box"><p>LATEST ARTICLES</p><p>Unrelated story headline.</p></section>
+    </article></body></html>`;
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/router-review" },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(response(html)) as unknown as typeof fetch,
+        dnsLookup: publicDns,
+      },
+    );
+
+    expect(context.articleText).toContain("The complete review explains");
+    expect(context.articleText).toContain("The final verdict records");
+    expect(context.articleText).not.toMatch(/Please logout|LATEST ARTICLES|Unrelated story/u);
+  });
+
+  it("does not mistake a strongly named teaser for a much longer article", async () => {
+    const html = `<html><body><article>
+      <h1>Long investigation</h1>
+      <div class="article-content"><p>Short teaser only.</p></div>
+      <section>
+        <p>${"The investigation documents verified evidence and attributed findings. ".repeat(12)}</p>
+        <p>${"A second section records the timeline, response, and public impact. ".repeat(12)}</p>
+      </section>
+    </article></body></html>`;
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/investigation" },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(response(html)) as unknown as typeof fetch,
+        dnsLookup: publicDns,
+      },
+    );
+
+    expect(context.articleText.length).toBeGreaterThan(1_000);
+    expect(context.articleText).toContain("A second section records the timeline");
+  });
+
+  it("recovers a complete articleBody from JSON-LD when the visible DOM is only a teaser", async () => {
+    const articleBody = [
+      "The complete first paragraph includes the verified announcement.",
+      "The complete second paragraph provides attributed figures and context.",
+      "The final paragraph records the implementation date and affected readers.",
+    ].join("\n\n");
+    const html = `<html><head>
+      <meta property="og:title" content="Structured report">
+      <script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        articleBody,
+      })}</script>
+    </head><body><article><h1>Structured report</h1><p>Short teaser.</p></article></body></html>`;
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/structured" },
+      {
+        fetchImpl: vi.fn().mockResolvedValue(response(html)) as unknown as typeof fetch,
+        dnsLookup: publicDns,
+      },
+    );
+
+    expect(context.articleText).toBe(articleBody);
+    expect(context.articleText).not.toBe("Short teaser.");
+  });
+
+  it("accepts modern publisher pages above the former 1.5 MB default response cap", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(
+        "<article><h1>Large publisher page</h1><p>The complete article remains readable.</p></article>",
+        { headers: { "Content-Length": "2100000" } },
+      ),
+    );
+    const context = await buildSourceContext(
+      { sourceUrl: "https://publisher.example/large" },
+      { fetchImpl: fetchMock as unknown as typeof fetch, dnsLookup: publicDns },
+    );
+
+    expect(context.articleText).toBe("The complete article remains readable.");
+  });
+
   it("supports text-only pages and local draft-only snapshots", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("  First fact.\r\n\r\nSecond fact.  ", {

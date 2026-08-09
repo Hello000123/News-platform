@@ -19,6 +19,7 @@ import type {
   NewsCategory,
   PipelineArticleStatus,
   PipelineArticleView,
+  PipelineRewriteSourceOrigin,
   ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
 import type { SelectableModelId } from "@/lib/shared/models";
@@ -149,6 +150,8 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
   const [filter, setFilter] = useState<Filter>("new");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
+  const [contentOrigin, setContentOrigin] =
+    useState<PipelineRewriteSourceOrigin | null>(null);
   const [output, setOutput] = useState<string | null>(null);
   const [postHeadline, setPostHeadline] = useState("");
   const [postBody, setPostBody] = useState("");
@@ -231,6 +234,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
     queueMicrotask(() => {
       if (cancelled) return;
       setContent(null);
+      setContentOrigin(null);
       setOutput(null);
       setPostHeadline("");
       setPostBody("");
@@ -246,6 +250,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
         .then((result) => {
           if (cancelled) return;
           setContent(result.content);
+          setContentOrigin(result.sourceOrigin);
           setArticles((current) =>
             current.map((article) =>
               article.id === result.article.id ? result.article : article,
@@ -852,7 +857,19 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
                     </div>
                   ) : content ? (
                     <details className="pipeline-source-disclosure" open={!output}>
-                      <summary>Read saved source content</summary>
+                      <summary>
+                        {contentOrigin === "rss_preview"
+                          ? "Read RSS preview (incomplete)"
+                          : contentOrigin === "live_page"
+                            ? "Read retrieved full source content"
+                            : "Read saved full source content"}
+                      </summary>
+                      {contentOrigin === "rss_preview" ? (
+                        <p className="pipeline-source-notice" role="note">
+                          The publisher page could not provide a complete body. This is only the
+                          feed preview and will not be cached as full source content.
+                        </p>
+                      ) : null}
                       <div className="pipeline-source-copy" tabIndex={0}>
                         {content}
                       </div>

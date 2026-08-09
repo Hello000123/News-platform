@@ -403,6 +403,29 @@ export async function getPipelineArticleByUrl(database: D1Database, url: string)
   return row ? mapArticle(row) : null;
 }
 
+/**
+ * Saves a successfully retrieved live body without changing editorial
+ * timestamps. A read-through cache must not make an open rewrite look stale.
+ */
+export async function cachePipelineArticleSourceText(
+  database: D1Database,
+  articleId: string,
+  sourceText: string,
+) {
+  const normalized = sourceText.trim().slice(0, 50_000);
+  if (!normalized) return false;
+  const result = await database
+    .prepare(
+      `UPDATE pipeline_articles
+       SET source_text = ?
+       WHERE id = ?
+         AND (source_text IS NULL OR length(trim(source_text)) < ?)`,
+    )
+    .bind(normalized, articleId, Array.from(normalized).length)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 export async function insertPipelineArticles(
   database: D1Database,
   feedId: string,
@@ -416,16 +439,31 @@ export async function insertPipelineArticles(
     const normalizedUrl = item.url.toLowerCase();
     if (seenUrls.has(normalizedUrl)) continue;
     seenUrls.add(normalizedUrl);
+    const sourceText = item.sourceText?.trim().slice(0, 50_000) || null;
     const existing = await getPipelineArticleByUrl(database, item.url);
-    if (existing) continue;
+    if (existing) {
+      if (sourceText && sourceText.length > (existing.sourceText?.trim().length ?? 0)) {
+        statements.push(
+          database
+            .prepare(
+              `UPDATE pipeline_articles
+               SET source_text = ?
+               WHERE id = ?
+                 AND (source_text IS NULL OR length(trim(source_text)) < ?)`,
+            )
+            .bind(sourceText, existing.id, sourceText.length),
+        );
+      }
+      continue;
+    }
     const articleId = createId();
     statements.push(
       database
         .prepare(
           `INSERT INTO pipeline_articles (
             id, feed_id, title, url, description, author, pub_date,
-            status, rewritten_text, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?)`,
+            status, rewritten_text, source_text, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?, ?)`,
         )
         .bind(
           articleId,
@@ -435,6 +473,7 @@ export async function insertPipelineArticles(
           item.description,
           item.author,
           item.pubDate,
+          sourceText,
           now,
           now,
         ),
@@ -515,14 +554,21 @@ export async function importScrapedArticles(
 
     const existing = await getPipelineArticleByUrl(database, article.url);
     if (existing) {
-      if (!existing.sourceText) {
+      if (article.contentText.trim().length > (existing.sourceText?.trim().length ?? 0)) {
         await database
           .prepare(
             `UPDATE pipeline_articles
              SET source_text = ?, image_url = COALESCE(image_url, ?), updated_at = ?
-             WHERE id = ?`,
+             WHERE id = ?
+               AND (source_text IS NULL OR length(trim(source_text)) < ?)`,
           )
-          .bind(article.contentText, article.imageUrl, nowInSeconds(), existing.id)
+          .bind(
+            article.contentText,
+            article.imageUrl,
+            nowInSeconds(),
+            existing.id,
+            article.contentText.trim().length,
+          )
           .run();
       }
       skipped += 1;

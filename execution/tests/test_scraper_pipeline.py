@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
@@ -14,6 +15,7 @@ if str(EXECUTION_DIR) not in sys.path:
     sys.path.insert(0, str(EXECUTION_DIR))
 
 import article_scraper
+import feed_parser
 import run_all
 import upload_to_r2
 
@@ -36,6 +38,35 @@ class FakeR2Client:
 
 
 class ScraperPipelineTests(unittest.TestCase):
+    def test_feed_parser_keeps_the_fullest_available_content_variant(self):
+        parsed_feed = SimpleNamespace(
+            bozo=False,
+            entries=[
+                {
+                    "id": "story-1",
+                    "title": "Feed headline",
+                    "link": "https://publisher.example/story-1",
+                    "content": [
+                        {"value": "<p>Short teaser.</p>"},
+                        {
+                            "value": (
+                                "<p>Complete first paragraph with attribution.</p>"
+                                "<p>Complete second paragraph with dates and context.</p>"
+                            )
+                        },
+                    ],
+                }
+            ],
+        )
+
+        with patch.object(feed_parser.feedparser, "parse", return_value=parsed_feed):
+            [item] = feed_parser.parse_feed_text(
+                "ignored", "https://publisher.example/feed.xml"
+            )
+
+        self.assertIn("Complete first paragraph", item["content_html"])
+        self.assertIn("Complete second paragraph", item["content_html"])
+
     def test_article_page_uses_generic_meta_image_and_resolves_relative_url(self):
         soup = BeautifulSoup(
             """
@@ -53,6 +84,28 @@ class ScraperPipelineTests(unittest.TestCase):
 
         self.assertEqual(result["image_url"], "https://publisher.example/images/hero.webp")
         self.assertEqual(result["content_text"], "Complete article body.")
+
+    def test_article_page_chooses_the_fullest_matching_content_container(self):
+        soup = BeautifulSoup(
+            """
+            <html><body><h1>Article headline</h1>
+              <div class="content teaser"><p>Short teaser.</p></div>
+              <article><p>Complete first paragraph with the central announcement.</p>
+                <p>Complete second paragraph with dates, figures, and attribution.</p></article>
+            </body></html>
+            """,
+            "html.parser",
+        )
+
+        result = article_scraper.parse_article_soup(
+            soup,
+            "https://publisher.example/news/story",
+            {"title": ["h1"], "content": [".content", "article"]},
+        )
+
+        self.assertIn("Complete first paragraph", result["content_text"])
+        self.assertIn("Complete second paragraph", result["content_text"])
+        self.assertNotEqual(result["content_text"], "Short teaser.")
 
     def test_failed_empty_page_scrape_does_not_erase_usable_feed_content(self):
         connection = sqlite3.connect(":memory:")
@@ -98,6 +151,26 @@ class ScraperPipelineTests(unittest.TestCase):
         )
         connection.close()
 
+    def test_short_page_scrape_does_not_replace_longer_feed_article(self):
+        item = {
+            "content_html": (
+                "<p>The complete feed article contains the announcement, attribution, "
+                "figures, timeline, and all supporting context.</p>"
+            )
+        }
+        run_all.merge_non_empty(
+            item,
+            {
+                "content_html": "<p>Short page teaser.</p>",
+                "content_text": "Short page teaser.",
+                "title": "Updated headline",
+            },
+        )
+
+        self.assertIn("complete feed article", item["content_text"])
+        self.assertIn("complete feed article", item["content_html"])
+        self.assertEqual(item["title"], "Updated headline")
+
     def test_invalid_empty_article_is_rejected_before_export(self):
         with self.assertRaisesRegex(ValueError, "article text"):
             run_all.normalize_item(
@@ -107,6 +180,18 @@ class ScraperPipelineTests(unittest.TestCase):
                     "title": "Headline",
                     "url": "https://publisher.example/story-1",
                     "content_text": "",
+                },
+            )
+
+    def test_title_only_article_is_rejected_before_export(self):
+        with self.assertRaisesRegex(ValueError, "only repeats the title"):
+            run_all.normalize_item(
+                "publisher",
+                {
+                    "id": "story-1",
+                    "title": "Headline: Product launch!",
+                    "url": "https://publisher.example/story-1",
+                    "content_text": "Headline — Product launch",
                 },
             )
 

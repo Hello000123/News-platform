@@ -101,9 +101,12 @@ export async function prepareSourceSnapshot(
   const imagePrimaryText = imageContext
     .map(({ label, text }) => `[${label}]\n${text}`)
     .join("\n\n");
-  const retrievedArticle = [linked.title.trim(), linked.articleText.trim()]
-    .filter(Boolean)
-    .join("\n\n");
+  const retrievedArticle = Array.from(
+    [linked.title.trim(), linked.articleText.trim()].filter(Boolean).join("\n\n"),
+  )
+    .slice(0, MAX_REFERENCE_CHARS)
+    .join("")
+    .trimEnd();
   const primaryText = userDraft || retrievedArticle || imagePrimaryText;
   if (!primaryText) {
     throw new AppError(

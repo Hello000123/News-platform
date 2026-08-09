@@ -158,6 +158,12 @@ export const pipelineArticleViewSchema = z
 
 export type PipelineArticleView = z.infer<typeof pipelineArticleViewSchema>;
 
+export const pipelineRewriteSourceOriginSchema = z.enum([
+  "saved_scraper",
+  "live_page",
+  "rss_preview",
+]);
+
 export const feedListResponseSchema = z
   .object({
     feeds: z.array(feedViewSchema),
@@ -194,6 +200,7 @@ export const articleContentResponseSchema = z
   .object({
     article: pipelineArticleViewSchema,
     content: z.string(),
+    sourceOrigin: pipelineRewriteSourceOriginSchema,
   })
   .strict();
 
@@ -230,12 +237,6 @@ export const pipelineRewriteInputSchema = z
 
 export type PipelineRewriteInput = z.input<typeof pipelineRewriteInputSchema>;
 export type PipelineRewriteRequest = z.infer<typeof pipelineRewriteInputSchema>;
-
-export const pipelineRewriteSourceOriginSchema = z.enum([
-  "saved_scraper",
-  "live_page",
-  "rss_preview",
-]);
 
 export const pipelineRewriteDebugEntrySchema = z
   .object({

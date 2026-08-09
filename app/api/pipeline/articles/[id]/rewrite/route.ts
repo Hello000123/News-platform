@@ -6,6 +6,7 @@ import { requireApiSession } from "@/lib/server/auth/guards";
 import { recordAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 import { AppError } from "@/lib/server/errors";
 import {
+  cachePipelineArticleSourceText,
   commitPipelineArticleRewrite,
   getPipelineArticleById,
   getPipelineArticlesByIds,
@@ -15,7 +16,10 @@ import {
   recordPipelineRewriteDebugLog,
   rewriteDebugFailureFields,
 } from "@/lib/server/feeds/rewrite-debug";
-import { loadPipelineArticleSource } from "@/lib/server/feeds/scraper";
+import {
+  pipelineArticleBodyText,
+  resolvePipelineArticleSource,
+} from "@/lib/server/feeds/scraper";
 import { connectedStoryArticles } from "@/lib/server/feeds/popularity";
 import { errorResponse, jsonResponse, readJsonRequest } from "@/lib/server/http";
 import {
@@ -88,10 +92,29 @@ function supportingReportText(article: PipelineArticleView, sourceText: string, 
 }
 
 async function sourceWithRelatedReports(
+  database: D1Database,
   canonicalArticle: PipelineArticleView,
   relatedArticles: readonly PipelineArticleView[],
 ) {
-  const primary = await loadPipelineArticleSource(canonicalArticle);
+  const loadAndCache = async (article: PipelineArticleView) => {
+    const resolved = await resolvePipelineArticleSource(article);
+    if (resolved.origin === "live_page") {
+      try {
+        await cachePipelineArticleSourceText(
+          database,
+          article.id,
+          pipelineArticleBodyText(article, resolved.source),
+        );
+      } catch (error) {
+        console.warn("[pipeline-source-cache] Could not save the retrieved article body.", {
+          articleId: article.id,
+          cause: error instanceof Error ? error.message.slice(0, 300) : "Unknown cache error",
+        });
+      }
+    }
+    return resolved.source;
+  };
+  const primary = await loadAndCache(canonicalArticle);
   if (relatedArticles.length === 0) return primary;
 
   const supportingReportChunks: string[] = [];
@@ -107,7 +130,7 @@ async function sourceWithRelatedReports(
     const snapshots = await Promise.all(
       batch.map(async (article, index) => {
         try {
-          const source = await loadPipelineArticleSource(article);
+          const source = await loadAndCache(article);
           return supportingReportText(article, source.primaryText, offset + index + 1);
         } catch {
           // Saved scraper content normally makes this unnecessary. If a single
@@ -241,7 +264,7 @@ export async function POST(request: Request, context: RouteContext) {
     debugRelatedReportCount = relatedArticles.length + 1;
     await recordAgentRequestAttempt(session.user.id, "rewrite");
 
-    const source = await sourceWithRelatedReports(article, relatedArticles);
+    const source = await sourceWithRelatedReports(database, article, relatedArticles);
     debugSource = source;
     debugSourceOrigin = pipelineSourceOrigin(article, source);
     const sourceSupportsDetail = pipelineSourceSupportsDetailedRewrite(source);

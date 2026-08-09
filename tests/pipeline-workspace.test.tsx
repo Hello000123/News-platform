@@ -73,6 +73,7 @@ function mockArticleLoad(value: PipelineArticleView) {
   vi.mocked(getPipelineArticleContent).mockResolvedValue({
     article: value,
     content: value.sourceText ?? "Saved source reporting.",
+    sourceOrigin: "saved_scraper",
   });
 }
 
@@ -92,6 +93,24 @@ describe("PipelineWorkspace post composer", () => {
     cleanup();
     vi.clearAllMocks();
   });
+
+  it("labels an RSS fallback as incomplete instead of full saved content", async () => {
+    mockArticleLoad(article);
+    vi.mocked(getPipelineArticleContent).mockResolvedValue({
+      article,
+      content: "Original source summary.",
+      sourceOrigin: "rss_preview",
+    });
+
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    expect(
+      await screen.findByText("Read RSS preview (incomplete)", {}, { timeout: 15_000 }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/publisher page could not provide a complete body/u),
+    ).toBeTruthy();
+  }, 20_000);
 
   it("edits post copy and its featured image before publishing to the homepage", async () => {
     mockArticleLoad(article);

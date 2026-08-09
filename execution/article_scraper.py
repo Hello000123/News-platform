@@ -17,6 +17,21 @@ def _pick(soup, selectors):
     return None
 
 
+def _pick_content(soup, selectors):
+    """Choose the fullest configured article container, not the first shell."""
+    candidates = []
+    seen = set()
+    for sel in selectors:
+        for el in soup.select(sel):
+            marker = id(el)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            text_length = len(el.get_text(" ", strip=True))
+            candidates.append((text_length, el))
+    return max(candidates, key=lambda candidate: candidate[0])[1] if candidates else None
+
+
 def _public_image_url(page_url, raw_url):
     if not raw_url:
         return None
@@ -39,7 +54,7 @@ def parse_article_soup(soup, url, selectors, known_published_at=None, known_auth
     if title_el:
         result["title"] = title_el.get_text(strip=True)
 
-    content_el = _pick(soup, selectors.get("content", []))
+    content_el = _pick_content(soup, selectors.get("content", []))
     if content_el:
         for sel in selectors.get("content_remove", []):
             for el in content_el.select(sel):

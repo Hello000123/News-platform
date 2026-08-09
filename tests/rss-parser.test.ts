@@ -76,6 +76,53 @@ describe("RSS/Atom feed parser", () => {
 
     expect(items[1].url).toBe("https://atom.example/two");
     expect(items[1].description).toBe("Content two");
+    expect(items[1].sourceText).toBe("Content two");
+  });
+
+  it("keeps RSS summaries separate from complete content:encoded article bodies", () => {
+    const xml = `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+      <channel><title>Full content feed</title>
+        <item>
+          <title>Complete story</title>
+          <link>https://example.com/complete</link>
+          <description><![CDATA[<p>Two-line teaser.</p>]]></description>
+          <content:encoded><![CDATA[
+            <p>The full first paragraph contains the announcement and attribution.</p>
+            <p>The full second paragraph contains figures, dates, and context.</p>
+          ]]></content:encoded>
+        </item>
+      </channel>
+    </rss>`;
+
+    expect(parseFeedXml(xml)).toEqual([
+      expect.objectContaining({
+        description: "Two-line teaser.",
+        sourceText:
+          "The full first paragraph contains the announcement and attribution.\n\nThe full second paragraph contains figures, dates, and context.",
+      }),
+    ]);
+  });
+
+  it("preserves boundaries in nested XHTML Atom article content", () => {
+    const xml = `<feed xmlns="http://www.w3.org/2005/Atom">
+      <title>Full Atom feed</title>
+      <entry>
+        <title>Nested Atom story</title>
+        <link href="https://atom.example/nested" />
+        <summary>Short summary.</summary>
+        <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+          <p>First paragraph with <strong>important attribution</strong>.</p>
+          <p>Second paragraph with the complete timeline.</p>
+          <ul><li>First confirmed item.</li><li>Second confirmed item.</li></ul>
+        </div></content>
+      </entry>
+    </feed>`;
+
+    expect(parseFeedXml(xml)[0]).toMatchObject({
+      description: "Short summary.",
+      sourceText:
+        "First paragraph with important attribution.\n\nSecond paragraph with the complete timeline.\n\nFirst confirmed item.\n\nSecond confirmed item.",
+    });
   });
 
   it("falls back to a non-alternate Atom link when no alternate link exists", () => {

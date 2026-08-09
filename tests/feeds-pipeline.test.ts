@@ -5,6 +5,7 @@ import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cachePipelineArticleSourceText,
   commitPipelineArticleRewrite,
   createFeed,
   deleteFeed,
@@ -435,6 +436,7 @@ describe("feeds repository", () => {
         title: "Story one",
         url: "https://example.com/one",
         description: "First story",
+        sourceText: "Complete feed article body.",
         author: null,
         pubDate: 1_780_300_800,
       },
@@ -454,6 +456,38 @@ describe("feeds repository", () => {
     expect(articles).toHaveLength(1);
     expect(articles[0].feedName).toBe("World News");
     expect(articles[0].status).toBe("new");
+    expect(articles[0].sourceText).toBe("Complete feed article body.");
+
+    const backfilled = await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Story one",
+        url: "https://example.com/one",
+        description: "First story",
+        sourceText:
+          "Complete feed article body with a later paragraph supplied by the publisher.",
+        author: null,
+        pubDate: 1_780_300_800,
+      },
+    ]);
+    expect(backfilled).toBe(0);
+    expect(await getPipelineArticleById(database, articles[0].id)).toMatchObject({
+      sourceText:
+        "Complete feed article body with a later paragraph supplied by the publisher.",
+    });
+
+    const beforeCache = await getPipelineArticleById(database, articles[0].id);
+    expect(
+      await cachePipelineArticleSourceText(
+        database,
+        articles[0].id,
+        "Complete live body with even more recovered reporting than the feed supplied, including the final attribution.",
+      ),
+    ).toBe(true);
+    expect(await getPipelineArticleById(database, articles[0].id)).toMatchObject({
+      sourceText:
+        "Complete live body with even more recovered reporting than the feed supplied, including the final attribution.",
+      updatedAt: beforeCache?.updatedAt,
+    });
 
     await setPipelineArticleRewritten(database, articles[0].id, "Rewritten copy.");
     const rewritten = await getPipelineArticleById(database, articles[0].id);
@@ -656,6 +690,18 @@ describe("feeds repository", () => {
       imported: 0,
       skipped: 1,
       sources: 1,
+    });
+
+    const moreCompleteText = `${scraped.contentText} A later scraper pass recovered the missing final paragraph.`;
+    expect(
+      await importScrapedArticles(
+        database,
+        [{ ...scraped, contentText: moreCompleteText }],
+        "emp-1",
+      ),
+    ).toEqual({ imported: 0, skipped: 1, sources: 1 });
+    expect(await getPipelineArticleById(database, article.id)).toMatchObject({
+      sourceText: moreCompleteText,
     });
   });
 

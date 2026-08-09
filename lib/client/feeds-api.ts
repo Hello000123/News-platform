@@ -8,6 +8,7 @@ import type {
   PipelineArticlePostUpdateInput,
   PipelineArticleStatus,
   PipelineArticleView,
+  PipelineRewriteSourceOrigin,
   PipelineRewriteInput,
   PopularPipelineStory,
   ScrapedArticleInput,
@@ -195,7 +196,11 @@ export function listPipelineArticles(status?: PipelineArticleStatus) {
 }
 
 export function getPipelineArticleContent(id: string) {
-  return requestJson<{ article: PipelineArticleView; content: string }>(
+  return requestJson<{
+    article: PipelineArticleView;
+    content: string;
+    sourceOrigin: PipelineRewriteSourceOrigin;
+  }>(
     `/api/pipeline/articles/${encodeURIComponent(id)}/content`,
     { method: "GET" },
   );

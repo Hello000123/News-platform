@@ -8,6 +8,7 @@ export interface FeedItem {
   readonly title: string;
   readonly url: string;
   readonly description: string | null;
+  readonly sourceText?: string;
   readonly author: string | null;
   readonly pubDate: number | null;
 }
@@ -71,6 +72,7 @@ function parseRssItems(root: XmlElement): FeedItem[] {
       const title = textOf(item, "title") ?? "";
       const link = resolveUrl(textOf(item, "link") ?? "", root);
       const description = textOf(item, "description");
+      const encodedContent = richTextOf(item, "content:encoded");
       const author = textOf(item, "author") ?? textOf(item, "dc:creator");
       const pubDate = parseDate(textOf(item, "pubDate") ?? textOf(item, "dc:date"));
 
@@ -79,10 +81,12 @@ function parseRssItems(root: XmlElement): FeedItem[] {
       }
 
       const itemDescription = description ? normalizePreview(description) : null;
+      const sourceText = encodedContent ? normalizeArticleContent(encodedContent) : null;
       return {
         title: title.trim().slice(0, 1_000),
         url: link,
         description: itemDescription?.slice(0, 20_000) ?? null,
+        ...(sourceText ? { sourceText: sourceText.slice(0, 50_000) } : {}),
         author: author?.trim().slice(0, 500) || null,
         pubDate,
       };
@@ -98,7 +102,9 @@ function parseAtomEntries(root: XmlElement): FeedItem[] {
     .map((entry) => {
       const title = textOf(entry, "title") ?? "";
       const link = resolveUrl(linkHref(entry), root);
-      const description = textOf(entry, "summary") ?? textOf(entry, "content");
+      const summary = textOf(entry, "summary");
+      const content = richTextOf(entry, "content");
+      const description = summary ?? content;
       const author = textOf(entry, "author") ?? defaultAuthor;
       const pubDate = parseDate(textOf(entry, "published") ?? textOf(entry, "updated"));
 
@@ -107,10 +113,12 @@ function parseAtomEntries(root: XmlElement): FeedItem[] {
       }
 
       const itemDescription = description ? normalizePreview(description) : null;
+      const sourceText = content ? normalizeArticleContent(content) : null;
       return {
         title: title.trim().slice(0, 1_000),
         url: link,
         description: itemDescription?.slice(0, 20_000) ?? null,
+        ...(sourceText ? { sourceText: sourceText.slice(0, 50_000) } : {}),
         author: author?.trim().slice(0, 500) || null,
         pubDate,
       };
@@ -185,6 +193,33 @@ function textOf(element: XmlElement, name: string): string | null {
   return raw;
 }
 
+function richTextOf(element: XmlElement, name: string): string | null {
+  const child = childElements(element).find(
+    (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
+  );
+  return child ? richTextContent(child).trim() : null;
+}
+
+function richTextContent(element: XmlElement): string {
+  let result = "";
+  for (const child of element.children) {
+    if (typeof child === "string") {
+      result += child;
+      continue;
+    }
+    const text = richTextContent(child);
+    const localName = child.name.toLowerCase().split(":").at(-1) ?? child.name.toLowerCase();
+    if (localName === "br") {
+      result += "\n";
+    } else if (["blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "pre", "section"].includes(localName)) {
+      result += `\n\n${text}\n\n`;
+    } else {
+      result += text;
+    }
+  }
+  return result;
+}
+
 function childElements(element: XmlElement): XmlElement[] {
   return element.children.filter(
     (child): child is XmlElement => typeof child !== "string",
@@ -216,6 +251,22 @@ function normalizePreview(value: string): string {
     .replace(/<[^>]+>/gu, " ")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "")
     .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function normalizeArticleContent(value: string): string {
+  return decodeXmlEntities(value)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/giu, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/giu, " ")
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/<\/(?:blockquote|div|h[1-6]|li|p|pre|section)>/giu, "\n\n")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "")
+    .replace(/[ \t]+/gu, " ")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/\n{3,}/gu, "\n\n")
     .trim();
 }
 
