@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_PIPELINE_RELATED_ARTICLE_IDS,
   feedInputSchema,
   feedUpdateSchema,
   pipelineArticlePostUpdateSchema,
   pipelineRewriteInputSchema,
   pipelineStatusUpdateSchema,
+  popularPipelineStorySchema,
   scrapedArticleImportRequestSchema,
 } from "@/lib/shared/feeds-contracts";
 
@@ -60,6 +62,39 @@ describe("feeds contracts", () => {
     expect(pipelineRewriteInputSchema.parse({}).relatedArticleIds).toEqual([]);
     expect(pipelineRewriteInputSchema.parse({}).publish).toBe(false);
     expect(pipelineRewriteInputSchema.parse({ publish: true }).publish).toBe(true);
+    expect(
+      pipelineRewriteInputSchema.parse({ debugBatchId: "top5-20260809.batch_1" })
+        .debugBatchId,
+    ).toBe("top5-20260809.batch_1");
+    expect(() => pipelineRewriteInputSchema.parse({ debugBatchId: "invalid batch id" })).toThrow();
+  });
+
+  it("uses one consistent related-report limit for requests and responses", () => {
+    const ids = Array.from(
+      { length: MAX_PIPELINE_RELATED_ARTICLE_IDS },
+      (_, index) => `article-${index}`,
+    );
+    expect(pipelineRewriteInputSchema.parse({ relatedArticleIds: ids }).relatedArticleIds).toEqual(
+      ids,
+    );
+    const story = {
+      articleId: ids[0],
+      title: "Popular story",
+      sourceCount: 2,
+      reportCount: ids.length,
+      publishedAt: 1_780_000_000,
+      relatedArticleIds: ids,
+    };
+    expect(popularPipelineStorySchema.parse(story).relatedArticleIds).toEqual(ids);
+    expect(() =>
+      pipelineRewriteInputSchema.parse({ relatedArticleIds: [...ids, "one-too-many"] }),
+    ).toThrow();
+    expect(() =>
+      popularPipelineStorySchema.parse({
+        ...story,
+        relatedArticleIds: [...ids, "one-too-many"],
+      }),
+    ).toThrow();
   });
 
   it("validates pipeline status transitions", () => {

@@ -125,6 +125,8 @@
     "name": "on.cc 東方日報",
     "type": "listing",
     "listing_url": "https://www.on.cc/hk/news/index.html",
+    "disabled": true,
+    "disabled_reason": "Article bodies became JavaScript-only; plain HTTP pages expose a title/teaser but configured body selectors return empty content (verified 2026-08-09).",
     "link_pattern": "/bkn/cnt/",
     "id_regex": "(bkn-\\d+)",
     "article_selectors": {
@@ -152,6 +154,8 @@
     "name": "TechRitual",
     "type": "rss",
     "feed_url": "https://techritual.com/feed/",
+    "disabled": true,
+    "disabled_reason": "Feed is behind a Cloudflare challenge and returns HTTP 403 to the plain-HTTP scraper (verified 2026-08-09).",
     "content_in_feed": false,
     "article_selectors": {
       "title": ["h1"],

@@ -1,4 +1,8 @@
-import type { PipelineArticleView, PopularPipelineStory } from "@/lib/shared/feeds-contracts";
+import {
+  MAX_PIPELINE_RELATED_ARTICLE_IDS,
+  type PipelineArticleView,
+  type PopularPipelineStory,
+} from "@/lib/shared/feeds-contracts";
 
 type PopularityArticle = Pick<
   PipelineArticleView,
@@ -38,6 +42,69 @@ const commonTitleWords = new Set([
   "updates",
 ]);
 
+const recurringGuidePublisherWords = new Set(["new", "nyt", "nytimes", "times", "york"]);
+
+const latinEventTokenGroups: Readonly<Record<string, string>> = {
+  debut: "event:launch",
+  debuts: "event:launch",
+  launch: "event:launch",
+  launched: "event:launch",
+  launches: "event:launch",
+  launching: "event:launch",
+  release: "event:launch",
+  released: "event:launch",
+  releases: "event:launch",
+  unveil: "event:launch",
+  unveiled: "event:launch",
+  unveils: "event:launch",
+  recall: "event:recall",
+  recalled: "event:recall",
+  recalls: "event:recall",
+  withdraw: "event:recall",
+  withdrew: "event:recall",
+  withdrawn: "event:recall",
+  rise: "event:rise",
+  rises: "event:rise",
+  rose: "event:rise",
+  rising: "event:rise",
+  increase: "event:rise",
+  increased: "event:rise",
+  increases: "event:rise",
+  higher: "event:rise",
+  fall: "event:fall",
+  falls: "event:fall",
+  fell: "event:fall",
+  falling: "event:fall",
+  decrease: "event:fall",
+  decreased: "event:fall",
+  decreases: "event:fall",
+  lower: "event:fall",
+  approve: "event:approve",
+  approved: "event:approve",
+  approves: "event:approve",
+  reject: "event:reject",
+  rejected: "event:reject",
+  rejects: "event:reject",
+  outage: "event:outage",
+  outages: "event:outage",
+  pricing: "event:pricing",
+  price: "event:pricing",
+  prices: "event:pricing",
+};
+
+const hanEventPatterns: ReadonlyArray<readonly [string, RegExp]> = [
+  ["event:launch", /(?:推出|發布|發表|揭曉|面世)/u],
+  ["event:recall", /(?:召回|停售|撤回|下架)/u],
+  ["event:rise", /(?:連升|上升|上漲|增加|增長|回升)/u],
+  ["event:fall", /(?:連跌|下跌|下滑|下降|減少|回落)/u],
+  ["event:approve", /(?:批准|通過|獲批)/u],
+  ["event:reject", /(?:拒絕|否決|不獲批)/u],
+];
+
+function normalizeLatinTitleToken(token: string) {
+  return latinEventTokenGroups[token] ?? token;
+}
+
 function normalizedTitle(title: string) {
   return title
     .normalize("NFKC")
@@ -49,8 +116,59 @@ function normalizedTitle(title: string) {
 function latinAndNumberTokens(title: string) {
   return new Set(
     (title.normalize("NFKC").toLocaleLowerCase("en").match(/[\p{Script=Latin}\p{N}]+/gu) ?? [])
-      .filter((token) => token.length > 1 && !commonTitleWords.has(token)),
+      .filter((token) => token.length > 1 && !commonTitleWords.has(token))
+      .map(normalizeLatinTitleToken),
   );
+}
+
+function titleEventSignature(title: string) {
+  const signature = new Set(
+    [...latinAndNumberTokens(title)].filter((token) => token.startsWith("event:")),
+  );
+  for (const [event, pattern] of hanEventPatterns) {
+    if (pattern.test(title)) signature.add(event);
+  }
+  return signature;
+}
+
+function eventSignaturesConflict(leftTitle: string, rightTitle: string) {
+  const left = titleEventSignature(leftTitle);
+  const right = titleEventSignature(rightTitle);
+  const mutuallyExclusiveEvents = [
+    ["event:launch", "event:recall"],
+    ["event:rise", "event:fall"],
+    ["event:approve", "event:reject"],
+  ] as const;
+  if (
+    mutuallyExclusiveEvents.some(
+      ([first, second]) =>
+        (left.has(first) && right.has(second)) ||
+        (left.has(second) && right.has(first)),
+    )
+  ) {
+    return true;
+  }
+  return left.size > 0 && right.size > 0 && intersectionSize(left, right) === 0;
+}
+
+function recurringGuideSubject(title: string) {
+  const normalized = title.normalize("NFKC").toLocaleLowerCase("en");
+  const match = normalized.match(
+    /^(.*?)\b(?:hints?|clues?)\s+(?:and|&)\s+(?:answers?|solutions?)\b/iu,
+  );
+  if (!match) return null;
+
+  const subjectTokens =
+    match[1].match(/[\p{Script=Latin}\p{N}]+/gu)?.filter(
+      (token) => !commonTitleWords.has(token) && !recurringGuidePublisherWords.has(token),
+    ) ?? [];
+  return subjectTokens.length > 0 ? subjectTokens.join(" ") : null;
+}
+
+function recurringGuideSubjectsConflict(leftTitle: string, rightTitle: string) {
+  const leftSubject = recurringGuideSubject(leftTitle);
+  const rightSubject = recurringGuideSubject(rightTitle);
+  return Boolean(leftSubject && rightSubject && leftSubject !== rightSubject);
 }
 
 function hanBigrams(title: string) {
@@ -95,6 +213,8 @@ export function titlesDescribeSameStory(leftTitle: string, rightTitle: string) {
   const rightNormalized = normalizedTitle(rightTitle);
   if (!leftNormalized || !rightNormalized) return false;
   if (leftNormalized === rightNormalized) return true;
+  if (recurringGuideSubjectsConflict(leftTitle, rightTitle)) return false;
+  if (eventSignaturesConflict(leftTitle, rightTitle)) return false;
 
   const leftLatin = latinAndNumberTokens(leftTitle);
   const rightLatin = latinAndNumberTokens(rightTitle);
@@ -140,6 +260,10 @@ function sourceTextLength(article: PopularityArticle) {
   return article.sourceText?.trim().length ?? article.description?.trim().length ?? 0;
 }
 
+function hasSavedSourceText(article: PopularityArticle) {
+  return Boolean(article.sourceText?.trim());
+}
+
 function articleTimestamp(article: PopularityArticle) {
   return article.pubDate ?? article.createdAt;
 }
@@ -147,6 +271,7 @@ function articleTimestamp(article: PopularityArticle) {
 function canonicalArticle(articles: readonly PopularityArticle[]) {
   return [...articles].sort(
     (left, right) =>
+      Number(hasSavedSourceText(right)) - Number(hasSavedSourceText(left)) ||
       sourceTextLength(right) - sourceTextLength(left) ||
       articleTimestamp(right) - articleTimestamp(left) ||
       left.id.localeCompare(right.id),
@@ -162,9 +287,8 @@ function newestTimestamp(articles: readonly PopularityArticle[]) {
  * feed coverage, then total report count, then recency. A cluster is returned
  * once, so a top-five batch never asks the editor to rewrite its duplicates.
  */
-export function selectPopularPipelineStories(
+export function rankPopularPipelineStories(
   articles: readonly PopularityArticle[],
-  limit = 5,
 ): PopularPipelineStory[] {
   const parent = articles.map((_article, index) => index);
   const find = (index: number): number => {
@@ -217,7 +341,7 @@ export function selectPopularPipelineStories(
                 articleTimestamp(right) - articleTimestamp(left) || left.id.localeCompare(right.id),
             )
             .map((article) => article.id),
-        ],
+        ].slice(0, MAX_PIPELINE_RELATED_ARTICLE_IDS),
       };
     })
     .sort(
@@ -226,6 +350,15 @@ export function selectPopularPipelineStories(
         right.reportCount - left.reportCount ||
         (right.publishedAt ?? 0) - (left.publishedAt ?? 0) ||
         left.title.localeCompare(right.title),
-    )
-    .slice(0, Math.max(0, Math.min(Math.floor(limit), 5)));
+    );
+}
+
+export function selectPopularPipelineStories(
+  articles: readonly PopularityArticle[],
+  limit = 5,
+): PopularPipelineStory[] {
+  return rankPopularPipelineStories(articles).slice(
+    0,
+    Math.max(0, Math.min(Math.floor(limit), 5)),
+  );
 }

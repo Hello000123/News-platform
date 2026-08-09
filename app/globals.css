@@ -3032,6 +3032,19 @@ footer p {
   line-height: 1.35;
 }
 
+.pipeline-debug-link {
+  justify-self: start;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.pipeline-debug-link:hover {
+  color: var(--ink-strong);
+}
+
 .pipeline-layout {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.6fr);

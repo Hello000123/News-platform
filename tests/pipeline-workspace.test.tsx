@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PipelineWorkspace } from "@/components/pipeline/pipeline-workspace";
 import {
+  FeedRequestError,
   getPipelineArticleContent,
+  importScrapedArticles,
   listPipelineArticles,
   listPopularPipelineStories,
   rewritePipelineArticle,
@@ -23,7 +25,19 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("@/lib/client/feeds-api", () => ({
-  FeedRequestError: class FeedRequestError extends Error {},
+  FeedRequestError: class FeedRequestError extends Error {
+    constructor(
+      public readonly code: string,
+      message: string,
+      public readonly fieldErrors?: Record<string, string[]>,
+      public readonly status?: number,
+      public readonly debugId?: string,
+      public readonly retryable?: boolean,
+    ) {
+      super(message);
+      this.name = "FeedRequestError";
+    }
+  },
   getPipelineArticleContent: vi.fn(),
   importScrapedArticles: vi.fn(),
   listPipelineArticles: vi.fn(),
@@ -175,10 +189,10 @@ describe("PipelineWorkspace post composer", () => {
         {
           articleId: newArticle.id,
           title: newArticle.title,
-          sourceCount: 1,
-          reportCount: 1,
+          sourceCount: 5,
+          reportCount: 5,
           publishedAt: newArticle.pubDate,
-          relatedArticleIds: [newArticle.id],
+          relatedArticleIds: [newArticle.id, "related-article-1"],
         },
       ],
     });
@@ -204,11 +218,199 @@ describe("PipelineWorkspace post composer", () => {
           model: "grok-4.5",
           outputLanguage: "traditional_chinese",
           lengthOption: "more_detailed",
-          relatedArticleIds: [newArticle.id],
+          relatedArticleIds: [newArticle.id, "related-article-1"],
           instruction: expect.stringContaining("完整新聞報道"),
         }),
       ),
     );
+    expect(await screen.findByText(/combined 1 duplicate report/u)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Open rewrite debug log/u }).getAttribute("href"))
+      .toBe("/api/pipeline/rewrite-debug?limit=50");
+    expect(rewritePipelineArticle).toHaveBeenCalledWith(
+      newArticle.id,
+      expect.objectContaining({ debugBatchId: expect.any(String) }),
+    );
+  }, 20_000);
+
+  it("makes partial Top 5 failures explicit in the success notice", async () => {
+    const newArticle = {
+      ...article,
+      status: "new" as const,
+      rewrittenText: null,
+    };
+    mockArticleLoad(newArticle);
+    vi.mocked(listPopularPipelineStories).mockResolvedValue({
+      stories: [
+        {
+          articleId: "successful-story",
+          title: "Successful story",
+          sourceCount: 2,
+          reportCount: 2,
+          publishedAt: newArticle.pubDate,
+          relatedArticleIds: ["successful-story", "successful-related"],
+        },
+        {
+          articleId: "failed-story",
+          title: "Failed story",
+          sourceCount: 1,
+          reportCount: 1,
+          publishedAt: newArticle.pubDate,
+          relatedArticleIds: ["failed-story"],
+        },
+      ],
+    });
+    vi.mocked(rewritePipelineArticle)
+      .mockResolvedValueOnce({
+        article: {
+          ...newArticle,
+          id: "successful-story",
+          status: "rewritten",
+          rewrittenText: "完整新聞標題\n\n完整新聞正文。",
+        },
+        finalText: "完整新聞標題\n\n完整新聞正文。",
+        validation: { status: "passed", attempts: 1 },
+      })
+      .mockRejectedValueOnce(
+        new FeedRequestError(
+          "REWRITE_LANGUAGE_MISMATCH",
+          "Traditional Chinese validation failed.",
+          undefined,
+          422,
+          "debug-failure-1",
+          false,
+        ),
+      );
+    const user = userEvent.setup();
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    await screen.findByRole("heading", { level: 2, name: newArticle.title }, { timeout: 15_000 });
+    await user.click(screen.getByRole("button", { name: "Rewrite top 5 in Chinese" }));
+
+    expect(await screen.findByText(/1 group failed; see the error below/u)).toBeTruthy();
+    expect(
+      screen.getByText(/Could not rewrite 1 story group: Failed story.*debug-failure-1/u),
+    ).toBeTruthy();
+  }, 20_000);
+
+  it("retries a retryable Top 5 story once and completes the batch", async () => {
+    const newArticle = {
+      ...article,
+      status: "new" as const,
+      rewrittenText: null,
+    };
+    mockArticleLoad(newArticle);
+    vi.mocked(listPopularPipelineStories).mockResolvedValue({
+      stories: [
+        {
+          articleId: "retry-story",
+          title: "Retry story",
+          sourceCount: 1,
+          reportCount: 1,
+          publishedAt: newArticle.pubDate,
+          relatedArticleIds: ["retry-story"],
+        },
+      ],
+    });
+    vi.mocked(rewritePipelineArticle)
+      .mockRejectedValueOnce(
+        new FeedRequestError(
+          "UNTRACEABLE_REWRITE_NUMBER",
+          "The final candidate still contained an unsupported number.",
+          undefined,
+          422,
+          "debug-retry-1",
+          true,
+        ),
+      )
+      .mockResolvedValueOnce({
+        article: {
+          ...newArticle,
+          id: "retry-story",
+          status: "rewritten",
+          rewrittenText: "安全標題\n\n安全而完整的新聞正文。",
+        },
+        finalText: "安全標題\n\n安全而完整的新聞正文。",
+        validation: { status: "passed_after_retry", attempts: 3 },
+      });
+    const user = userEvent.setup();
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    await screen.findByRole("heading", { level: 2, name: newArticle.title }, { timeout: 15_000 });
+    await user.click(screen.getByRole("button", { name: "Rewrite top 5 in Chinese" }));
+
+    expect(await screen.findByText(/Rewrote 1 of 1 popular story group/u)).toBeTruthy();
+    expect(rewritePipelineArticle).toHaveBeenCalledTimes(2);
+    const firstInput = vi.mocked(rewritePipelineArticle).mock.calls[0]?.[1];
+    const secondInput = vi.mocked(rewritePipelineArticle).mock.calls[1]?.[1];
+    expect(secondInput?.debugBatchId).toBe(firstInput?.debugBatchId);
+    expect(screen.queryByText(/Could not rewrite/u)).toBeNull();
+  }, 20_000);
+
+  it("finishes all five story groups across validation and network retries", async () => {
+    const newArticle = {
+      ...article,
+      status: "new" as const,
+      rewrittenText: null,
+    };
+    mockArticleLoad(newArticle);
+    const stories = Array.from({ length: 5 }, (_, index) => ({
+      articleId: `top-story-${index + 1}`,
+      title: `Top story ${index + 1}`,
+      sourceCount: 1,
+      reportCount: 1,
+      publishedAt: (newArticle.pubDate ?? 0) - index,
+      relatedArticleIds: [`top-story-${index + 1}`],
+    }));
+    vi.mocked(listPopularPipelineStories).mockResolvedValue({ stories });
+    const attempts = new Map<string, number>();
+    vi.mocked(rewritePipelineArticle).mockImplementation(async (id) => {
+      const attempt = (attempts.get(id) ?? 0) + 1;
+      attempts.set(id, attempt);
+      if (id === "top-story-2" && attempt === 1) {
+        throw new FeedRequestError(
+          "UNTRACEABLE_REWRITE_NUMBER",
+          "A focused validation repair is required.",
+          undefined,
+          422,
+          "debug-five-validation",
+          true,
+        );
+      }
+      if (id === "top-story-4" && attempt === 1) {
+        throw new TypeError("The successful response was lost.");
+      }
+      return {
+        article: {
+          ...newArticle,
+          id,
+          status: "rewritten" as const,
+          rewrittenText: `${id}標題\n\n${id}完整新聞正文。`,
+        },
+        finalText: `${id}標題\n\n${id}完整新聞正文。`,
+        validation: { status: "passed_after_retry" as const, attempts: 3 as const },
+      };
+    });
+    const user = userEvent.setup();
+    render(<PipelineWorkspace initialModel="grok-4.5" />);
+
+    await screen.findByRole("heading", { level: 2, name: newArticle.title }, { timeout: 15_000 });
+    await user.click(screen.getByRole("button", { name: "Rewrite top 5 in Chinese" }));
+
+    expect(await screen.findByText(/Rewrote 5 of 5 popular story groups/u)).toBeTruthy();
+    expect(rewritePipelineArticle).toHaveBeenCalledTimes(7);
+    expect(Object.fromEntries(attempts)).toEqual({
+      "top-story-1": 1,
+      "top-story-2": 2,
+      "top-story-3": 1,
+      "top-story-4": 2,
+      "top-story-5": 1,
+    });
+    const batchIds = new Set(
+      vi.mocked(rewritePipelineArticle).mock.calls.map(([, input]) => input?.debugBatchId),
+    );
+    expect(batchIds.size).toBe(1);
+    expect([...batchIds][0]).toEqual(expect.any(String));
+    expect(screen.queryByText(/Could not rewrite/u)).toBeNull();
   }, 20_000);
 
   it("uploads an editor-owned photo and keeps the managed image with the post", async () => {
@@ -235,5 +437,52 @@ describe("PipelineWorkspace post composer", () => {
     expect(screen.getByRole("img", { name: "Featured image preview" }).getAttribute("src")).toBe(
       managedImageUrl,
     );
+  }, 20_000);
+
+  it("imports valid scraper rows even when another row is malformed", async () => {
+    mockArticleLoad(article);
+    vi.mocked(importScrapedArticles).mockResolvedValue({ imported: 1, skipped: 0, sources: 1 });
+    const user = userEvent.setup();
+    const { container } = render(<PipelineWorkspace initialModel="grok-4.5" />);
+    await screen.findByDisplayValue("Editorial headline", {}, { timeout: 15_000 });
+
+    const validRecord = {
+      source: "unwire",
+      title: "Usable scraped article",
+      url: "https://unwire.example/usable",
+      author: "News Desk",
+      published_at: "2026-08-09T03:00:00Z",
+      content_text: "Complete saved source text.",
+      image_url: "https://unwire.example/usable.webp",
+    };
+    const invalidRecord = {
+      source: "oncc",
+      title: "Empty scrape",
+      url: "https://on.cc/empty",
+      content_text: "",
+    };
+    const input = container.querySelector<HTMLInputElement>("#scraped-news-import");
+    expect(input).not.toBeNull();
+    await user.upload(
+      input!,
+      new File([JSON.stringify([validRecord, invalidRecord])], "combined.json", {
+        type: "application/json",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(importScrapedArticles).toHaveBeenCalledWith([
+        {
+          source: "unwire",
+          title: "Usable scraped article",
+          url: "https://unwire.example/usable",
+          author: "News Desk",
+          publishedAt: "2026-08-09T03:00:00Z",
+          contentText: "Complete saved source text.",
+          imageUrl: "https://unwire.example/usable.webp",
+        },
+      ]),
+    );
+    expect(await screen.findByText(/1 invalid record was skipped/u)).toBeTruthy();
   }, 20_000);
 });

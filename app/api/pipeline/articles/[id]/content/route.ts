@@ -1,7 +1,7 @@
 import { getDatabase } from "@/lib/server/auth/database";
 import { requireApiSession } from "@/lib/server/auth/guards";
 import { getPipelineArticleById } from "@/lib/server/feeds/repository";
-import { loadArticleContent } from "@/lib/server/feeds/scraper";
+import { loadPipelineArticleSource } from "@/lib/server/feeds/scraper";
 import { errorResponse, jsonResponse } from "@/lib/server/http";
 import { AppError } from "@/lib/server/errors";
 
@@ -20,10 +20,7 @@ export async function GET(request: Request, context: RouteContext) {
     if (!article) {
       throw new AppError("ARTICLE_NOT_FOUND", "The article was not found.", 404);
     }
-    if (article.sourceText?.trim()) {
-      return jsonResponse({ article, content: article.sourceText });
-    }
-    const source = await loadArticleContent(article.url);
+    const source = await loadPipelineArticleSource(article);
     const content = [
       source.linkedTitle ? `[Article title]\n${source.linkedTitle}` : "",
       source.primaryText,

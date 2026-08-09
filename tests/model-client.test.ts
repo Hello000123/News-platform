@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   requestModelCompletion,
@@ -13,7 +13,22 @@ const baseRequest: CompletionRequest = {
   maxTokens: 1_000,
 };
 
+function completionResponse(content: string) {
+  return new Response(
+    JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content } }],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 describe("model provider router", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
   it("rejects removed or arbitrary model identifiers before any provider request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -37,6 +52,30 @@ describe("model provider router", () => {
     }
 
     expect(fetchMock).not.toHaveBeenCalled();
-    vi.unstubAllGlobals();
+  });
+
+  it("retries one transient provider failure and returns the completed rewrite", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("XAI_API_KEY", "test-key");
+    vi.stubEnv("XAI_STREAM", "false");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "temporary" } }), {
+          status: 503,
+        }),
+      )
+      .mockResolvedValueOnce(completionResponse("Recovered rewrite."));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const completion = requestModelCompletion({
+      ...baseRequest,
+      stage: "rewrite_request",
+      responseFormat: "text",
+    });
+    await vi.advanceTimersByTimeAsync(501);
+
+    await expect(completion).resolves.toBe("Recovered rewrite.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -87,6 +87,34 @@ function rewrittenHeadline(value: string | null) {
   return splitPostCopy(value).headline || "Untitled post";
 }
 
+function rewriteErrorMessage(error: FeedRequestError) {
+  return error.debugId
+    ? `${error.message} Debug ID: ${error.debugId}.`
+    : error.message;
+}
+
+function createRewriteDebugBatchId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `top5-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const TOP_FIVE_REQUEST_ATTEMPTS = 2;
+
+function shouldRetryPopularRewrite(error: unknown) {
+  if (!(error instanceof FeedRequestError)) return true;
+  if (error.retryable === false) return false;
+  if (error.retryable === true) return true;
+  if (error.code === "INVALID_SERVER_RESPONSE") return true;
+  return (
+    error.status === undefined ||
+    error.status === 408 ||
+    error.status === 429 ||
+    error.status >= 500
+  );
+}
+
 function scrapedArticleInput(value: unknown, index: number): ScrapedArticleInput {
   if (!value || typeof value !== "object") {
     throw new Error(`Article ${index + 1} is not a valid scraper record.`);
@@ -268,13 +296,31 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       if (!Array.isArray(parsed)) {
         throw new Error("Choose the scraper's combined.json export.");
       }
-      const result = await importScrapedArticles(
-        parsed.map((item, index) => scrapedArticleInput(item, index)),
-      );
-      setNotice(
-        `Imported ${result.imported} scraped article${result.imported === 1 ? "" : "s"}` +
-          (result.skipped ? `; ${result.skipped} already existed.` : "."),
-      );
+      const validArticles: ScrapedArticleInput[] = [];
+      const rejectedArticles: string[] = [];
+      parsed.forEach((item, index) => {
+        try {
+          validArticles.push(scrapedArticleInput(item, index));
+        } catch (error) {
+          rejectedArticles.push(
+            error instanceof Error ? error.message : `Article ${index + 1} is invalid.`,
+          );
+        }
+      });
+      if (validArticles.length === 0) {
+        throw new Error(rejectedArticles[0] ?? "The scraper export contains no valid articles.");
+      }
+      const result = await importScrapedArticles(validArticles);
+      const noticeParts = [
+        `Imported ${result.imported} scraped article${result.imported === 1 ? "" : "s"}`,
+      ];
+      if (result.skipped) noticeParts.push(`${result.skipped} already existed`);
+      if (rejectedArticles.length) {
+        noticeParts.push(
+          `${rejectedArticles.length} invalid record${rejectedArticles.length === 1 ? " was" : "s were"} skipped`,
+        );
+      }
+      setNotice(`${noticeParts.join("; ")}.`);
       setLoading(true);
       setFilter("new");
       setRefreshVersion((current) => current + 1);
@@ -318,7 +364,9 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       setValidation(
         result.validation.status === "passed"
           ? "Validation passed on the first attempt."
-          : "Validation passed after a focused correction.",
+          : result.validation.attempts === 3
+            ? "Validation passed after two focused corrections."
+            : "Validation passed after a focused correction.",
       );
       setArticles((current) =>
         current.map((article) =>
@@ -339,7 +387,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
     } catch (error) {
       setErrorMessage(
         error instanceof FeedRequestError
-          ? error.message
+          ? rewriteErrorMessage(error)
           : "The article could not be rewritten.",
       );
     } finally {
@@ -359,7 +407,7 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       const { stories } = await listPopularPipelineStories();
       if (stories.length === 0) {
         setNotice(
-          "There are no saved scraper reports ready yet. Import the scraper's combined.json export, then run the top-five batch.",
+          "There are no new feed or scraper reports ready to rewrite. Fetch the feeds or import the scraper's combined.json export, then run the top-five batch.",
         );
         return;
       }
@@ -367,21 +415,43 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
       let rewrittenCount = 0;
       let mergedCount = 0;
       const failedTitles: string[] = [];
+      const debugBatchId = createRewriteDebugBatchId();
       for (const [index, story] of stories.entries()) {
-        setPopularRewriteProgress(`Rewriting ${index + 1}/${stories.length}: ${story.title}`);
-        try {
-          await rewritePipelineArticle(story.articleId, {
-            model,
-            outputLanguage: "traditional_chinese",
-            lengthOption: "more_detailed",
-            relatedArticleIds: story.relatedArticleIds,
-            instruction: POPULAR_PIPELINE_REWRITE_INSTRUCTION,
-          });
+        let rewritten = false;
+        let finalError: unknown = null;
+        for (let requestAttempt = 1; requestAttempt <= TOP_FIVE_REQUEST_ATTEMPTS; requestAttempt += 1) {
+          setPopularRewriteProgress(
+            `${requestAttempt === 1 ? "Rewriting" : "Retrying"} ${index + 1}/${stories.length}: ${story.title}`,
+          );
+          try {
+            await rewritePipelineArticle(story.articleId, {
+              model,
+              outputLanguage: "traditional_chinese",
+              lengthOption: "more_detailed",
+              relatedArticleIds: story.relatedArticleIds,
+              instruction: POPULAR_PIPELINE_REWRITE_INSTRUCTION,
+              debugBatchId,
+            });
+            rewritten = true;
+            break;
+          } catch (error) {
+            finalError = error;
+            if (
+              requestAttempt >= TOP_FIVE_REQUEST_ATTEMPTS ||
+              !shouldRetryPopularRewrite(error)
+            ) {
+              break;
+            }
+          }
+        }
+        if (rewritten) {
           rewrittenCount += 1;
-          mergedCount += Math.max(story.reportCount - 1, 0);
-        } catch (error) {
+          mergedCount += Math.max(story.relatedArticleIds.length - 1, 0);
+        } else {
           failedTitles.push(
-            error instanceof FeedRequestError ? `${story.title}: ${error.message}` : story.title,
+            finalError instanceof FeedRequestError
+              ? `${story.title}: ${rewriteErrorMessage(finalError)}`
+              : story.title,
           );
         }
       }
@@ -393,7 +463,10 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
         setNotice(
           `Rewrote ${rewrittenCount} of ${stories.length} popular story group${stories.length === 1 ? "" : "s"} in Traditional Chinese` +
             (mergedCount ? ` and combined ${mergedCount} duplicate report${mergedCount === 1 ? "" : "s"}` : "") +
-            ". Review each draft before approval.",
+            (failedTitles.length
+              ? `. ${failedTitles.length} group${failedTitles.length === 1 ? "" : "s"} failed; see the error below.`
+              : ".") +
+            " Review each draft before approval.",
         );
       }
       if (failedTitles.length > 0) {
@@ -636,6 +709,14 @@ export function PipelineWorkspace({ initialModel }: PipelineWorkspaceProps) {
           <p>
             Groups related reports, prioritises independent source coverage, and leaves all drafts for human approval.
           </p>
+          <a
+            className="pipeline-debug-link"
+            href="/api/pipeline/rewrite-debug?limit=50"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open rewrite debug log <span aria-hidden="true">↗</span>
+          </a>
         </div>
         <div className="pipeline-model">
           <label className="input-label" htmlFor="pipeline-model">

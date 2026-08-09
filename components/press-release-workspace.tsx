@@ -58,7 +58,7 @@ type RewriteState =
       status: "success";
       attemptId: number;
       text: string;
-      validation: { status: "passed" | "passed_after_retry"; attempts: 1 | 2 };
+      validation: { status: "passed" | "passed_after_retry"; attempts: 1 | 2 | 3 };
     }
   | {
       status: "quotation-failed";

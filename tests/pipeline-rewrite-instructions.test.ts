@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   COMBINED_PIPELINE_REWRITE_INSTRUCTION,
   formatSupportingReportPrompt,
+  pipelineSourceSupportsDetailedRewrite,
   PIPELINE_REWRITE_FIDELITY_INSTRUCTION,
   POPULAR_PIPELINE_REWRITE_INSTRUCTION,
+  SPARSE_PIPELINE_SOURCE_INSTRUCTION,
 } from "@/lib/shared/pipeline-rewrite-instructions";
 
 describe("pipeline rewrite instructions", () => {
@@ -13,10 +15,26 @@ describe("pipeline rewrite instructions", () => {
       POPULAR_PIPELINE_REWRITE_INSTRUCTION,
       COMBINED_PIPELINE_REWRITE_INSTRUCTION,
       PIPELINE_REWRITE_FIDELITY_INSTRUCTION,
+      SPARSE_PIPELINE_SOURCE_INSTRUCTION,
     ]) {
       expect(instruction).toMatch(/\p{Script=Han}/u);
       expect(instruction).not.toMatch(/[A-Za-z]/u);
     }
+  });
+
+  it("uses brief mode for a headline-sized preview and detailed mode for sufficient evidence", () => {
+    expect(
+      pipelineSourceSupportsDetailedRewrite({
+        primaryText: "A one-line RSS preview.",
+      }),
+    ).toBe(false);
+    expect(
+      pipelineSourceSupportsDetailedRewrite({
+        primaryText: "Main report details. ".repeat(20),
+        linkedText: "Corroborating report details. ".repeat(20),
+      }),
+    ).toBe(true);
+    expect(SPARSE_PIPELINE_SOURCE_INSTRUCTION).toContain("不得為增加篇幅而推測");
   });
 
   it("defines newsroom structure, source priority, conflicts, and title-bounded fidelity", () => {

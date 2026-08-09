@@ -310,9 +310,11 @@ function parseChineseInteger(raw: string) {
 }
 
 const numericSuffixPattern =
-  /^\s*(?:[-‐‑‒–—]\s*)?(?:(百分比|美元|美金|港元|港幣|人民幣|個座位|座位|%|％|名|位|人|部|款|個|台|套|家|間|宗|項|件|輛|架|枚|次|倍|×|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|reports?|cases?|seats?|years?|months?|days?|hours?|minutes?|seconds?|times?|inch(?:es)?|x|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|km|cm|mm|kW|W)\b)/iu;
+  /^\s*(?:[-‐‑‒–—]\s*)?(?:(?:整|多|餘|余|來|来)\s*)?(?:(百分比|美元|美金|港元|港幣|港币|人民幣|人民币|個座位|个座位|座位|%|％|名|位|人|部|款|個|个|台|臺|套|家|間|间|宗|項|项|種|种|類|类|件|輛|辆|座|架|枚|次|倍|×|折|席|年|月|日|天|小時|小时|分鐘|分钟|秒|克|公斤|英寸|吋|度|°|元)|(percent(?:age)?|USD|HKD|CNY|RMB|dollars?|people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|writers?|authors?|followers?|views?|impressions?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|apps?|applications?|prototypes?|reports?|cases?|seats?|cores?|threads?|processes?|phases?|gpus?|igpus?|configurations?|variants?|skus?|segments?|years?|months?|days?|hours?|minutes?|seconds?|times?|inch(?:es)?|x|GHz|MHz|kHz|Hz|mAh|kWh|GB|TB|MB|KB|kg|g|km|cm|mm|kW|W)\b)/iu;
 const numericCurrencyPrefixPattern =
   /(HK\$|US\$|USD|HKD|CNY|RMB|港幣|港元|美元|人民幣|\$)\s*$/iu;
+const numericIdentifierPrefixPattern =
+  /(?:^|[^A-Za-z0-9])(?:Windows|WinUI|macOS|iOS|iPadOS|watchOS|tvOS|visionOS|Android|ChromeOS|Chrome|Firefox|Safari|Ubuntu|Fedora|Debian|Apollo|GPT|Core\s+Ultra|Xeon|Ryzen|EPYC|RDNA|Xe|PCIe|USB|Bluetooth|Wi-?Fi|Series|Gen(?:eration)?)\s*[-‐‑‒–—]?\s*$/iu;
 
 const englishMonthTokenPattern =
   "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec";
@@ -355,25 +357,75 @@ const englishMonthNumbers: Readonly<Record<string, string>> = {
   dec: "12",
 };
 
-const englishSingularCountPattern =
-  /(?<![\p{L}\p{N}])(?:a|an|one)\s+(piece|object|device|unit|vehicle|rocket|stage|satellite|spacecraft|monitor|console|system|model|product|version|item|report|case|seat|person|user|customer|worker|employee|participant|attendee|student)\b/giu;
+const directEnglishSingularCountNouns =
+  "piece|object|device|unit|vehicle|rocket|stage|satellite|spacecraft|monitor|console|system|model|product|version|item|app|application|prototype|mode|report|case|seat|person|user|customer|worker|employee|participant|attendee|student";
+const modifiedEnglishSingularItemNouns = "app|application|prototype|mode";
+const englishSingularCountPattern = new RegExp(
+  String.raw`(?<![\p{L}\p{N}])(?:a|an|one)\s+(?:(${directEnglishSingularCountNouns})|(?:[\p{L}\p{N}][\p{L}\p{N}.'’+-]*\s+){1,4}(${modifiedEnglishSingularItemNouns}))\b`,
+  "giu",
+);
+
+const englishSmallNumberValues: Readonly<Record<string, string>> = {
+  zero: "0",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+  eleven: "11",
+  twelve: "12",
+  thirteen: "13",
+  fourteen: "14",
+  fifteen: "15",
+  sixteen: "16",
+  seventeen: "17",
+  eighteen: "18",
+  nineteen: "19",
+  twenty: "20",
+};
+const englishSmallNumberPattern =
+  /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/giu;
+const englishOccurrenceWordPattern = /\b(once|twice)\b/giu;
+const nearbyEnglishCountNounPattern =
+  /^(?:\s+[\p{L}][\p{L}\p{N}'’+.-]*){0,4}\s+(people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|writers?|authors?|followers?|views?|impressions?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|apps?|applications?|prototypes?|modes?|reports?|cases?|seats?|cores?|threads?|processes?|phases?|gpus?|igpus?|configurations?|variants?|skus?|segments?|styles?|types?|options?|choices?|picks?|recommendations?|managers?|passwords?|vacuums?|landers?|orbiters?)\b/iu;
+const qualifiedEnglishCountNounPattern =
+  /^\s+[\p{L}\p{N}][\p{L}\p{N}.'’+-]*-(cores?|threads?|processes?|phases?|gpus?|igpus?)\b/iu;
+const localizedTechnicalCountPattern =
+  /^\s*(?:(?:個|个|項|项|條|条|組|组|套)\s*)?(?:[A-Za-z][A-Za-z0-9.+-]*\s*){0,3}(?:(?:個|个|項|项|條|条|組|组|套)\s*)?(?:核心|執行緒|执行绪|線程|线程|進程|进程|程序|相位|配置|架構單元|架构单元)/u;
+
+export function extractEnglishSmallNumberValues(text: string) {
+  return Array.from(text.matchAll(englishSmallNumberPattern), (match) =>
+    englishSmallNumberValues[match[1].toLocaleLowerCase("en")],
+  ).filter(
+    (value): value is string => Boolean(value),
+  ).filter((value, index, values) => values.indexOf(value) === index);
+}
 
 function normalizeNumericUnit(raw: string) {
   const unit = raw.normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/gu, "");
   if (["%", "百分比", "percent", "percentage"].includes(unit)) return "percent";
   if (["us$", "usd", "美元", "美金", "dollar", "dollars"].includes(unit)) return "currency:usd";
-  if (["hk$", "hkd", "港元", "港幣"].includes(unit)) return "currency:hkd";
-  if (["cny", "rmb", "人民幣", "元"].includes(unit)) return "currency:cny";
+  if (["hk$", "hkd", "港元", "港幣", "港币"].includes(unit)) return "currency:hkd";
+  if (["cny", "rmb", "人民幣", "人民币", "元"].includes(unit)) return "currency:cny";
   if (unit === "$") return "currency:dollar";
-  if (["people", "person", "persons", "user", "users", "customer", "customers", "worker", "workers", "employee", "employees", "participant", "participants", "attendee", "attendees", "student", "students", "名", "位", "人"].includes(unit)) return "count:person";
-  if (["piece", "pieces", "object", "objects", "device", "devices", "unit", "units", "vehicle", "vehicles", "rocket", "rockets", "stage", "stages", "satellite", "satellites", "spacecraft", "monitor", "monitors", "console", "consoles", "system", "systems", "部", "台", "套", "件", "輛", "架", "枚"].includes(unit)) return "count:unit";
-  if (["model", "models", "product", "products", "version", "versions", "item", "items", "款", "個", "項"].includes(unit)) return "count:item";
+  if (["people", "person", "persons", "user", "users", "customer", "customers", "worker", "workers", "employee", "employees", "participant", "participants", "attendee", "attendees", "student", "students", "writer", "writers", "author", "authors", "follower", "followers", "名", "位", "人"].includes(unit)) return "count:person";
+  if (["piece", "pieces", "object", "objects", "device", "devices", "unit", "units", "vehicle", "vehicles", "rocket", "rockets", "stage", "stages", "satellite", "satellites", "spacecraft", "monitor", "monitors", "console", "consoles", "system", "systems", "部", "台", "臺", "套", "件", "輛", "辆", "座", "架", "枚"].includes(unit)) return "count:unit";
+  if (["model", "models", "product", "products", "version", "versions", "item", "items", "app", "apps", "application", "applications", "prototype", "prototypes", "mode", "modes", "core", "cores", "thread", "threads", "process", "processes", "phase", "phases", "gpu", "gpus", "igpu", "igpus", "configuration", "configurations", "variant", "variants", "sku", "skus", "segment", "segments", "款", "個", "个", "項", "项", "種", "种", "類", "类"].includes(unit)) return "count:item";
   if (["report", "reports", "case", "cases", "宗"].includes(unit)) return "count:case";
-  if (["seat", "seats", "個座位", "座位", "席"].includes(unit)) return "count:seat";
+  if (["seat", "seats", "個座位", "个座位", "座位", "席"].includes(unit)) return "count:seat";
   if (["x", "×", "倍"].includes(unit)) return "ratio:multiplier";
   if (["inch", "inches", "英寸", "吋"].includes(unit)) return "length:inch";
-  if (["time", "times", "次"].includes(unit)) return "count:occurrence";
-  if (["家", "間"].includes(unit)) return `count:${unit}`;
+  if (["°", "度"].includes(unit)) return "angle:degree";
+  if (unit === "公斤") return "kg";
+  if (unit === "克") return "g";
+  if (["time", "times", "view", "views", "impression", "impressions", "次"].includes(unit)) return "count:occurrence";
+  if (unit === "家") return "count:家";
+  if (["間", "间"].includes(unit)) return "count:間";
   if (["year", "years", "年"].includes(unit)) return "time:year";
   if (["month", "months", "月"].includes(unit)) return "time:month";
   if (["day", "days", "日", "天"].includes(unit)) return "time:day";
@@ -383,14 +435,67 @@ function normalizeNumericUnit(raw: string) {
   return unit;
 }
 
-function numericUnitAt(text: string, start: number, end: number) {
+function nearbyEnglishCountUnit(suffix: string) {
+  const match =
+    suffix.match(qualifiedEnglishCountNounPattern) ??
+    suffix.match(nearbyEnglishCountNounPattern);
+  if (!match) return null;
+  const noun = match[1]?.toLocaleLowerCase("en");
+  if (!noun) return null;
+  const phrase = match[0].toLocaleLowerCase("en");
+  if (noun === "manager" || noun === "managers") {
+    return /\bpassword\s+managers?\b/u.test(phrase) ? "count:item" : "count:person";
+  }
+  if (
+    /^(?:styles?|types?|modes?|options?|choices?|picks?|recommendations?|passwords?)$/u.test(noun)
+  ) {
+    return "count:item";
+  }
+  if (/^(?:vacuums?|landers?|orbiters?)$/u.test(noun)) return "count:unit";
+  return normalizeNumericUnit(noun);
+}
+
+function numericUnitAt(
+  text: string,
+  start: number,
+  end: number,
+  allowNearbyEnglishCounts = true,
+) {
   const prefix = text.slice(Math.max(0, start - 32), start);
   const prefixUnit = prefix.match(numericCurrencyPrefixPattern)?.[1];
   if (prefixUnit) return normalizeNumericUnit(prefixUnit);
+  // Product and protocol version numbers are identifiers, not quantities.
+  // Without this guard, wording such as `Windows 11天氣` can turn the OS
+  // version into "11 days", while `Xe3P` can become a fabricated core count.
+  if (numericIdentifierPrefixPattern.test(prefix)) return null;
   const suffix = text.slice(end, end + 32);
+  if (
+    /^\s*(?:[-‐‑‒–—]\s*)?times?\s+(?:the\b|as\b)/iu.test(suffix)
+  ) {
+    return "ratio:multiplier";
+  }
+  if (localizedTechnicalCountPattern.test(suffix)) return "count:item";
   const suffixMatch = suffix.match(numericSuffixPattern);
   const suffixUnit = suffixMatch?.[1] ?? suffixMatch?.[2];
-  if (suffixUnit) return normalizeNumericUnit(suffixUnit);
+  if (suffixUnit) {
+    // `天` is a duration only when it stands as a unit; it is not a unit at
+    // the start of the lexical words `天氣` / `天气`.
+    if (
+      suffixUnit === "天" &&
+      /^\s*(?:[-‐‑‒–—]\s*)?(?:(?:整|多|餘|余|來|来)\s*)?天[氣气]/u.test(suffix)
+    ) {
+      return null;
+    }
+    const normalizedUnit = normalizeNumericUnit(suffixUnit);
+    if (
+      !allowNearbyEnglishCounts &&
+      Boolean(suffixMatch?.[2]) &&
+      normalizedUnit.startsWith("count:")
+    ) {
+      return null;
+    }
+    return normalizedUnit;
+  }
 
   const rawValue = text.slice(start, end).replaceAll(",", "");
   const numericValue = Number(rawValue);
@@ -414,7 +519,70 @@ function numericUnitAt(text: string, start: number, end: number) {
     return "time:year";
   }
 
+  if (
+    /^(?:\d{2}|\d{4})$/u.test(rawValue) &&
+    /^(?:['’]?s)\b/iu.test(suffix) &&
+    (rawValue.length === 4 ||
+      /\b(?:in|during|throughout|since|from)\s+(?:the\s+)?['’]?$/iu.test(prefix))
+  ) {
+    return "time:year";
+  }
+
+  if (!allowNearbyEnglishCounts) return null;
+  const nearbyCountUnit = nearbyEnglishCountUnit(suffix);
+  if (nearbyCountUnit) return nearbyCountUnit;
+
   return null;
+}
+
+const TWO_DIGIT_DECADE_CENTURY_PIVOT = 29;
+
+function normalizeDecadeValue(
+  text: string,
+  end: number,
+  value: string,
+  unit: string | null,
+  rawNumericToken = value,
+) {
+  if (
+    unit !== "time:year" ||
+    !/^\d{2}$/u.test(rawNumericToken) ||
+    Number(rawNumericToken) % 10 !== 0 ||
+    !/^(?:(?:['’]?s)\b|年代)/iu.test(text.slice(end, end + 4))
+  ) {
+    return value;
+  }
+
+  const abbreviatedDecade = Number(rawNumericToken);
+  const century =
+    abbreviatedDecade <= TWO_DIGIT_DECADE_CENTURY_PIVOT ? 2_000 : 1_900;
+  return String(century + abbreviatedDecade);
+}
+
+function isGrammaticalChineseSingular(
+  text: string,
+  start: number,
+  raw: string,
+  unit: string | null,
+) {
+  if (raw !== "一" || !unit) {
+    return false;
+  }
+
+  // 「一次過」 is a Hong Kong adverb meaning "in one go", not a report that
+  // something occurred exactly once. Other uses of 「一次」 remain material.
+  if (unit === "count:occurrence") {
+    return text.slice(start, start + 3) === "一次過";
+  }
+
+  if (!["count:item", "count:unit", "count:person"].includes(unit)) return false;
+
+  const prefix = text
+    .slice(Math.max(0, start - 12), start)
+    .replace(/[\s,，:：;；、()（）「」『』]+$/gu, "");
+  return /(?:每|另|其中|任何|任|例如|譬如|比方說|假如|假若|若|倘若|假設|作為|身為|以)$/u.test(
+    prefix,
+  );
 }
 
 function numericUnitsCompatible(left: string, right: string) {
@@ -439,9 +607,17 @@ export function extractNumericFacts(text: string): NumericFact[] {
     const raw = match[0];
     arabicRanges.push({ start, end: start + raw.length });
     const scale = match[2]?.toLocaleLowerCase("en") ?? "";
+    const unit = numericUnitAt(text, start, start + raw.length);
+    const value = applyPowerOfTen(match[1], numericScalePowers[scale] ?? 0);
     facts.push({
-      value: applyPowerOfTen(match[1], numericScalePowers[scale] ?? 0),
-      unit: numericUnitAt(text, start, start + raw.length),
+      value: normalizeDecadeValue(
+        text,
+        start + raw.length,
+        value,
+        unit,
+        match[1].replaceAll(",", ""),
+      ),
+      unit,
       raw,
     });
   }
@@ -456,10 +632,30 @@ export function extractNumericFacts(text: string): NumericFact[] {
     ) {
       continue;
     }
-    const unit = numericUnitAt(text, start, start + raw.length);
+    // 「數十／數百／數千」 denotes an imprecise range, not the exact value
+    // represented by the matched numeral fragment. Do not turn a faithful
+    // translation of English wording such as "dozens" into an invented count.
+    if (/(?:數|数)\s*$/u.test(text.slice(Math.max(0, start - 2), start))) {
+      continue;
+    }
+    const unit = numericUnitAt(text, start, start + raw.length, false);
     if (!unit) continue;
     const value = parseChineseInteger(raw);
-    if (value !== null) facts.push({ value: normalizeDecimal(value), unit, raw });
+    if (value !== null) {
+      const normalizedValue = normalizeDecimal(value);
+      if (isGrammaticalChineseSingular(text, start, raw, unit)) continue;
+      facts.push({
+        value: normalizeDecadeValue(
+          text,
+          start + raw.length,
+          normalizedValue,
+          unit,
+          normalizedValue,
+        ),
+        unit,
+        raw,
+      });
+    }
   }
 
   for (const match of text.matchAll(englishMonthPattern)) {
@@ -471,13 +667,34 @@ export function extractNumericFacts(text: string): NumericFact[] {
     if (value) facts.push({ value, unit: "time:month", raw });
   }
 
+  // Written English numbers are material only when nearby wording gives them
+  // a deterministic role. This covers translations such as "seven times" to
+  // 「7倍」 and "8 Best Password Managers" to 「8款密碼管理器」 without
+  // treating an isolated "one" or "two" as numeric evidence.
+  for (const match of text.matchAll(englishSmallNumberPattern)) {
+    const raw = match[1];
+    const unit = numericUnitAt(text, match.index, match.index + raw.length);
+    const value = englishSmallNumberValues[raw.toLocaleLowerCase("en")];
+    if (unit && value) facts.push({ value, unit, raw });
+  }
+
+  for (const match of text.matchAll(englishOccurrenceWordPattern)) {
+    facts.push({
+      value: match[1].toLocaleLowerCase("en") === "once" ? "1" : "2",
+      unit: "count:occurrence",
+      raw: match[1],
+    });
+  }
+
   // English singular determiners carry an explicit count even though they do
   // not contain a digit. Keep the noun allowlist narrow so ordinary articles
   // such as "a preferred source" cannot whitelist an invented Chinese count.
   for (const match of text.matchAll(englishSingularCountPattern)) {
+    const noun = match[1] ?? match[2];
+    if (!noun) continue;
     facts.push({
       value: "1",
-      unit: normalizeNumericUnit(match[1]),
+      unit: normalizeNumericUnit(noun),
       raw: match[0],
     });
   }
@@ -1072,7 +1289,7 @@ const rewriteValidationFailurePromptMessages: Readonly<Record<string, string>> =
   INEXACT_SOURCE_SCRIPT_NAME:
     "候選稿遺漏、改動或羅馬化了必須以來源文字逐字保留的人名；請按 verbatimSourceScriptNames 修正。",
   UNTRACEABLE_REWRITE_NUMBER:
-    "候選稿加入了無法按數值及單位追溯至 allowedNumericFacts 的數字；請刪除或按來源改正。",
+    "逐一處理 diagnostic 列出的數值及單位。候選稿加入了無法追溯至 allowedNumericFacts 的數字時，請刪除該數量或按來源改正；來源只列出多個項目而沒有明寫總數時，不得自行計算後加入「幾個／幾項／幾套」等數量，應直接列出來源項目。不得改動產品或版本名稱來避開驗證。",
   MISSING_REWRITE_NUMBER:
     "候選稿遺漏了必須保留的來源數值事實；請按 mandatoryNumericFacts 中的數值及單位修正。",
   UNTRACEABLE_REWRITE_QUOTATION:
@@ -1086,9 +1303,13 @@ const rewriteValidationFailurePromptMessages: Readonly<Record<string, string>> =
 function rewriteValidationFailureForPrompt(failure: { code: string; message: string }) {
   return {
     code: failure.code,
-    message:
+    instruction:
       rewriteValidationFailurePromptMessages[failure.code] ??
       "候選稿未通過確定性驗證；請根據驗證代碼及本提示中的來源資料修正。",
+    // This is deterministic backend output, not an authored instruction. The
+    // exact values/names let the focused repair change the failing occurrence
+    // instead of guessing from a generic validation code and repeating it.
+    diagnostic: failure.message.slice(0, 2_000),
   };
 }
 
@@ -1110,7 +1331,7 @@ export function createRewriteValidationCorrectionPrompt(
     failure.failures && failure.failures.length > 0 ? failure.failures : [failure];
   return [
     createRewriteUserPrompt(source, review, context),
-    "只限一次修正",
+    "只限本次修正",
     "候選稿未能通過確定性驗證。只修正已指出的問題，同時保留每項有依據的事實、逐字引文、人名、數字、不確定性及消息來源。",
     "輸出一行標題，第二行留空，其後輸出完整文章正文。不得加入評論或驗證說明。",
     "如驗證代碼為 INVALID_REWRITE_FORMAT，須保留已有的實質編輯。如果候選稿同時只是複製來源，不得只把未改動的來源重新分為標題和正文；應作出一項克制的非引文結構改善，同時保持所有事實準確。",

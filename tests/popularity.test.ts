@@ -5,7 +5,10 @@ import {
   selectPopularPipelineStories,
   titlesDescribeSameStory,
 } from "@/lib/server/feeds/popularity";
-import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
+import {
+  MAX_PIPELINE_RELATED_ARTICLE_IDS,
+  type PipelineArticleView,
+} from "@/lib/shared/feeds-contracts";
 
 function article(
   id: string,
@@ -80,6 +83,63 @@ describe("pipeline story popularity", () => {
     expect(titlesDescribeSameStory("香港推出新創科基金", "香港推出新創科基金")).toBe(true);
   });
 
+  it("does not merge different games that use the same daily hints template", () => {
+    const connections = "NYT Connections hints and answers for Sunday, August 9 (game #1155)";
+    const quordle = "Quordle hints and answers for Sunday, August 9 (game #1658)";
+    const strands = "NYT Strands hints and answers for Sunday, August 9 (game #889)";
+
+    expect(titlesDescribeSameStory(connections, quordle)).toBe(false);
+    expect(titlesDescribeSameStory(connections, strands)).toBe(false);
+    expect(titlesDescribeSameStory(quordle, strands)).toBe(false);
+    expect(
+      titlesDescribeSameStory(
+        connections,
+        "New York Times Connections hints and answers for Sunday, August 9 (game #1155)",
+      ),
+    ).toBe(true);
+    expect(selectPopularPipelineStories([
+      article("connections", "techradar", connections),
+      article("quordle", "techradar", quordle),
+      article("strands", "techradar", strands),
+    ])).toHaveLength(3);
+  });
+
+  it("keeps contradictory events out of the same story cluster", () => {
+    expect(
+      titlesDescribeSameStory(
+        "Apple launches iPhone 17 worldwide",
+        "Apple recalls iPhone 17 worldwide",
+      ),
+    ).toBe(false);
+    expect(titlesDescribeSameStory("香港樓價連升三月", "香港樓價連跌三月")).toBe(false);
+    expect(
+      titlesDescribeSameStory(
+        "Apple launches iPhone update as prices rise",
+        "Apple launches iPhone update as prices fall",
+      ),
+    ).toBe(false);
+    expect(
+      titlesDescribeSameStory("公司發布手機後售價上升", "公司發布手機後售價下跌"),
+    ).toBe(false);
+  });
+
+  it("still groups equivalent event wording", () => {
+    expect(
+      titlesDescribeSameStory(
+        "Apple launches iPhone 17 worldwide",
+        "Apple unveils iPhone 17 worldwide",
+      ),
+    ).toBe(true);
+    expect(titlesDescribeSameStory("公司公布新款手機", "公司發布新款手機")).toBe(true);
+    expect(
+      titlesDescribeSameStory(
+        "Apple announces iPhone 17 recall worldwide",
+        "Apple recalls iPhone 17 worldwide",
+      ),
+    ).toBe(true);
+    expect(titlesDescribeSameStory("公司宣布召回新手機", "公司召回新手機")).toBe(true);
+  });
+
   it("keeps only the transitive component connected to the canonical story", () => {
     const canonical = article("a", "wire-a", "Alpha Beta launch");
     const bridge = article("b", "wire-b", "Alpha Beta Gamma");
@@ -90,5 +150,40 @@ describe("pipeline story popularity", () => {
       bridge,
       transitive,
     ]);
+  });
+
+  it("prefers a saved full-text report as the canonical article in a mixed cluster", () => {
+    const stories = selectPopularPipelineStories([
+      article("feed-only", "wire-a", "OpenAI unveils GPT-5 AI model", {
+        sourceText: null,
+        description: "A very long feed preview. ".repeat(100),
+        pubDate: 1_780_000_200,
+      }),
+      article("saved-source", "wire-b", "OpenAI unveils GPT-5 model for developers", {
+        sourceText: "Complete saved report.",
+        description: "Short preview.",
+        pubDate: 1_780_000_100,
+      }),
+    ]);
+
+    expect(stories[0]).toMatchObject({
+      articleId: "saved-source",
+      sourceCount: 2,
+      reportCount: 2,
+      relatedArticleIds: ["saved-source", "feed-only"],
+    });
+  });
+
+  it("caps a very large cluster at the rewrite API's related-report limit", () => {
+    const reportCount = MAX_PIPELINE_RELATED_ARTICLE_IDS + 5;
+    const [story] = selectPopularPipelineStories(
+      Array.from({ length: reportCount }, (_, index) =>
+        article(`same-${index}`, `wire-${index}`, "Shared exact story headline"),
+      ),
+    );
+
+    expect(story.reportCount).toBe(reportCount);
+    expect(story.relatedArticleIds).toHaveLength(MAX_PIPELINE_RELATED_ARTICLE_IDS);
+    expect(story.relatedArticleIds[0]).toBe(story.articleId);
   });
 });

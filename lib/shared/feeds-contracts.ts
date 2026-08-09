@@ -2,13 +2,13 @@ import { z } from "zod";
 
 import {
   MAX_REWRITE_INSTRUCTION_CHARS,
+  quotationIssueKindSchema,
   rewriteLengthOptionSchema,
   rewriteOutputLanguageSchema,
   rewriteValidationSchema,
   selectableModelSchema,
 } from "@/lib/shared/contracts";
 import { NEWS_CATEGORY_VALUES } from "@/lib/shared/news-categories";
-import type { NewsCategory } from "@/lib/shared/news-categories";
 
 export type { NewsCategory } from "@/lib/shared/news-categories";
 
@@ -31,6 +31,8 @@ export const PIPELINE_ARTICLE_DESCRIPTION_MAX_LENGTH = 20_000;
 export const PIPELINE_ARTICLE_AUTHOR_MAX_LENGTH = 500;
 export const PIPELINE_ARTICLE_REWRITTEN_TEXT_MAX_LENGTH = 50_000;
 export const SCRAPED_ARTICLE_CONTENT_MAX_LENGTH = 50_000;
+export const MAX_PIPELINE_RELATED_ARTICLE_IDS = 200;
+export const MAX_PIPELINE_REWRITE_DEBUG_LOGS = 100;
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 
@@ -202,7 +204,10 @@ export const pipelineRewriteInputSchema = z
     outputLanguage: rewriteOutputLanguageSchema.optional(),
     relatedArticleIds: z
       .array(z.string().trim().min(1).max(128))
-      .max(49, "A rewrite can combine up to 49 related reports.")
+      .max(
+        MAX_PIPELINE_RELATED_ARTICLE_IDS,
+        `A rewrite can combine up to ${MAX_PIPELINE_RELATED_ARTICLE_IDS} selected report IDs.`,
+      )
       .default([]),
     instruction: z
       .string()
@@ -213,10 +218,67 @@ export const pipelineRewriteInputSchema = z
       )
       .default(""),
     publish: z.boolean().default(false),
+    debugBatchId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(128)
+      .regex(/^[A-Za-z0-9._:-]+$/u, "The rewrite debug batch ID is invalid.")
+      .optional(),
   })
   .strict();
 
 export type PipelineRewriteInput = z.input<typeof pipelineRewriteInputSchema>;
+export type PipelineRewriteRequest = z.infer<typeof pipelineRewriteInputSchema>;
+
+export const pipelineRewriteSourceOriginSchema = z.enum([
+  "saved_scraper",
+  "live_page",
+  "rss_preview",
+]);
+
+export const pipelineRewriteDebugEntrySchema = z
+  .object({
+    id: z.string(),
+    batchId: z.string().nullable(),
+    articleId: z.string(),
+    articleTitle: z.string(),
+    requestedModel: selectableModelSchema,
+    outputLanguage: rewriteOutputLanguageSchema,
+    requestedLengthOption: rewriteLengthOptionSchema.nullable(),
+    effectiveLengthOption: rewriteLengthOptionSchema.nullable(),
+    relatedReportCount: z.number().int().min(1),
+    sourceOrigin: pipelineRewriteSourceOriginSchema.nullable(),
+    sourceCharacters: z.number().int().min(0).nullable(),
+    linkedCharacters: z.number().int().min(0).nullable(),
+    outcome: z.enum(["success", "failure"]),
+    validationStatus: z.enum(["passed", "passed_after_retry"]).nullable(),
+    attempts: z.number().int().min(1).max(3).nullable(),
+    errorCode: z.string().nullable(),
+    errorMessage: z.string().nullable(),
+    errorDetails: z.array(z.string()),
+    retryable: z.boolean().nullable(),
+    stage: z.enum(["review_request", "rewrite_request"]).nullable(),
+    provider: z.string().nullable(),
+    providerModel: z.string().nullable(),
+    providerHttpStatus: z.number().int().min(0).max(599).nullable(),
+    causeSummary: z.string().nullable(),
+    quotationIssueKinds: z.array(quotationIssueKindSchema),
+    quotationIssueCount: z.number().int().min(0),
+    candidateCharacters: z.number().int().min(0).nullable(),
+    durationMs: z.number().int().min(0),
+    createdAt: z.number().int().min(0),
+  })
+  .strict();
+
+export type PipelineRewriteDebugEntry = z.infer<typeof pipelineRewriteDebugEntrySchema>;
+export type PipelineRewriteSourceOrigin = z.infer<typeof pipelineRewriteSourceOriginSchema>;
+
+export const pipelineRewriteDebugListResponseSchema = z
+  .object({
+    logs: z.array(pipelineRewriteDebugEntrySchema).max(MAX_PIPELINE_REWRITE_DEBUG_LOGS),
+  })
+  .strict();
 
 export const popularPipelineStorySchema = z
   .object({
@@ -225,7 +287,7 @@ export const popularPipelineStorySchema = z
     sourceCount: z.number().int().min(1),
     reportCount: z.number().int().min(1),
     publishedAt: z.number().nullable(),
-    relatedArticleIds: z.array(z.string()).min(1).max(200),
+    relatedArticleIds: z.array(z.string()).min(1).max(MAX_PIPELINE_RELATED_ARTICLE_IDS),
   })
   .strict();
 

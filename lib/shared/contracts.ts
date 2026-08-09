@@ -296,7 +296,7 @@ export const quotationIssueSchema = z
 export const rewriteValidationSchema = z
   .object({
     status: z.enum(["passed", "passed_after_retry"]),
-    attempts: z.union([z.literal(1), z.literal(2)]),
+    attempts: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   })
   .strict();
 
@@ -326,7 +326,8 @@ export const apiErrorResponseSchema = z
         causeSummary: z.string().trim().min(1).max(500).optional(),
         quotationIssues: z.array(quotationIssueSchema).optional(),
         candidateText: z.string().max(MAX_REFERENCE_CHARS).optional(),
-        attempts: z.number().int().min(1).max(2).optional(),
+        attempts: z.number().int().min(1).max(3).optional(),
+        debugId: z.string().trim().min(1).max(128).optional(),
       })
       .strict(),
   })

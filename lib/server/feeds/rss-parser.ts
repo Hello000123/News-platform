@@ -166,7 +166,7 @@ function linkHref(entry: XmlElement): string {
     if (rel === "alternate" && href) return href;
   }
   for (const child of childElements(entry)) {
-    if (child.name.toLowerCase() !== "link" && child.attributes.href) {
+    if (child.name.toLowerCase() === "link" && child.attributes.href) {
       return child.attributes.href;
     }
   }

@@ -1,3 +1,4 @@
+import fcntl
 import json
 import re
 import sqlite3
@@ -47,20 +48,68 @@ def mark_seen(conn, source, article_id):
     )
 
 
+def merge_non_empty(target, scraped):
+    for key, value in scraped.items():
+        if value is not None and (not isinstance(value, str) or value.strip()):
+            target[key] = value
+
+
 def normalize_item(source_key, item):
+    article_id = str(item.get("id") or "").strip()
+    title = str(item.get("title") or "").strip()
+    url = str(item.get("url") or "").strip()
+    content_text = str(item.get("content_text") or "").strip()
+    missing = [
+        name
+        for name, value in (
+            ("article id", article_id),
+            ("title", title),
+            ("URL", url),
+            ("article text", content_text),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"missing {', '.join(missing)}")
     return {
-        "id": f"{source_key}-{item['id']}",
-        "article_id": item["id"],
+        "id": f"{source_key}-{article_id}",
+        "article_id": article_id,
         "source": source_key,
-        "title": item.get("title"),
-        "url": item.get("url"),
+        "title": title,
+        "url": url,
         "author": item.get("author"),
         "published_at": item.get("published_at"),
         "content_html": item.get("content_html", ""),
-        "content_text": item.get("content_text", ""),
+        "content_text": content_text,
         "image_url": item.get("image_url"),
         "scraped_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def merge_article_lists(new_articles, existing_articles):
+    merged = []
+    seen = set()
+    for article in [*new_articles, *existing_articles]:
+        key = (article.get("source"), str(article.get("article_id") or article.get("id") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(article)
+    return merged
+
+
+def write_merged_articles(path, new_articles):
+    existing = []
+    if path.exists():
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(parsed, list):
+                existing = parsed
+        except (OSError, ValueError):
+            existing = []
+    merged = merge_article_lists(new_articles, existing)
+    path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return merged
 
 
 def handle_feed(source_key, source_cfg, conn, max_items, delay):
@@ -69,7 +118,12 @@ def handle_feed(source_key, source_cfg, conn, max_items, delay):
     threshold = source_cfg.get("min_content_chars", 0)
     articles = []
     for item in items:
-        if is_seen(conn, source_key, item["id"]):
+        article_id = item.get("id") or item.get("url")
+        if not article_id:
+            print("  [warn] feed entry without an id or URL was skipped")
+            continue
+        item["id"] = article_id
+        if is_seen(conn, source_key, article_id):
             continue
         feed_html = item.get("content_html", "")
         needs_scrape = not source_cfg.get("content_in_feed") or len(feed_html) < threshold
@@ -81,14 +135,17 @@ def handle_feed(source_key, source_cfg, conn, max_items, delay):
                     known_published_at=item.get("published_at"),
                     known_author=item.get("author"),
                 )
-                item.update(scraped)
+                merge_non_empty(item, scraped)
                 time.sleep(delay)
             except Exception as exc:
                 print(f"  [warn] scrape failed {item['url']}: {exc}")
         item["content_text"] = item.get("content_text") or utils.html_to_text(
             item.get("content_html", "")
         )
-        articles.append(normalize_item(source_key, item))
+        try:
+            articles.append(normalize_item(source_key, item))
+        except ValueError as exc:
+            print(f"  [warn] invalid article skipped {item.get('url')}: {exc}")
     return articles
 
 
@@ -121,7 +178,11 @@ def handle_listing(source_key, source_cfg, conn, max_items, delay):
         scraped["content_text"] = scraped.get("content_text") or utils.html_to_text(
             scraped.get("content_html", "")
         )
-        articles.append(normalize_item(source_key, scraped))
+        try:
+            articles.append(normalize_item(source_key, scraped))
+        except ValueError as exc:
+            print(f"  [warn] invalid article skipped {url}: {exc}")
+            continue
         time.sleep(delay)
     return articles
 
@@ -148,7 +209,12 @@ def handle_browser(source_key, source_cfg, conn, max_items, delay):
                 items.append({"id": article_id, "url": url, "title": None, "author": None, "published_at": None, "content_html": ""})
         articles = []
         for item in items:
-            if is_seen(conn, source_key, item["id"]):
+            article_id = item.get("id") or item.get("url")
+            if not article_id:
+                print("  [warn] browser entry without an id or URL was skipped")
+                continue
+            item["id"] = article_id
+            if is_seen(conn, source_key, article_id):
                 continue
             scraped = browser_scraper.scrape_article_browser(
                 browser,
@@ -157,18 +223,22 @@ def handle_browser(source_key, source_cfg, conn, max_items, delay):
                 known_published_at=item.get("published_at"),
                 known_author=item.get("author"),
             )
-            item.update(scraped)
+            merge_non_empty(item, scraped)
             item["content_text"] = item.get("content_text") or utils.html_to_text(
                 item.get("content_html", "")
             )
-            articles.append(normalize_item(source_key, item))
+            try:
+                articles.append(normalize_item(source_key, item))
+            except ValueError as exc:
+                print(f"  [warn] invalid article skipped {item.get('url')}: {exc}")
+                continue
             time.sleep(delay)
         return articles
     finally:
         browser.close()
 
 
-def main():
+def run_once():
     upload = "--no-upload" not in sys.argv
     settings = config.get_settings()
     sources = config.load_sources()
@@ -179,6 +249,7 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
 
     all_new = []
+    touched_source_paths = []
     for source_key, source_cfg in sources.items():
         if source_cfg.get("disabled"):
             print(f"[scrape] {source_key} ({source_cfg['name']}) — DISABLED: {source_cfg.get('disabled_reason', '')}")
@@ -204,38 +275,68 @@ def main():
             print(f"  [error] {source_key}: {exc}")
             continue
 
-        for article in articles:
-            mark_seen(conn, source_key, article["article_id"])
-        conn.commit()
-
         if articles:
             path = run_dir / f"{source_key}.json"
-            path.write_text(json.dumps(articles, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_merged_articles(path, articles)
+            touched_source_paths.append(path)
             print(f"  [{len(articles)} new] -> {path.name}")
             all_new.extend(articles)
         else:
             print("  [0 new]")
 
     combined_path = run_dir / "combined.json"
-    combined_path.write_text(
-        json.dumps(all_new, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    write_merged_articles(combined_path, all_new)
 
+    delivered = False
+    upload_failed = False
     if upload and all_new:
         r2_cfg = config.get_r2_config()
         if r2_cfg is None:
-            print("[warn] R2 credentials not configured in .env — skipping upload")
+            print("[warn] R2 credentials not configured in .env — skipping upload and retaining articles for retry")
         else:
-            client = upload_to_r2.get_client(r2_cfg)
-            upload_to_r2.upload_file(client, r2_cfg, combined_path, f"news/{today}/combined.json")
-            for article_file in run_dir.glob("*.json"):
-                if article_file.name == "combined.json":
-                    continue
-                upload_to_r2.upload_file(client, r2_cfg, article_file, f"news/{today}/{article_file.name}")
-            print(f"[upload] uploaded {len(all_new)} articles to R2")
+            try:
+                client = upload_to_r2.get_client(r2_cfg)
+                upload_to_r2.merge_and_upload_json(
+                    client, r2_cfg, combined_path, f"news/{today}/combined.json"
+                )
+                for article_file in touched_source_paths:
+                    upload_to_r2.merge_and_upload_json(
+                        client,
+                        r2_cfg,
+                        article_file,
+                        f"news/{today}/{article_file.name}",
+                    )
+                delivered = True
+                print(f"[upload] uploaded {len(all_new)} articles to R2")
+            except Exception as exc:
+                upload_failed = True
+                print(f"[error] R2 upload failed; articles remain eligible for retry: {exc}")
+    elif not upload and all_new:
+        print("[no-upload] articles were written locally and remain eligible for a future delivery run")
+
+    if delivered:
+        for article in all_new:
+            mark_seen(conn, article["source"], article["article_id"])
+        conn.commit()
 
     print(f"[done] {len(all_new)} new articles")
-    return 0
+    conn.close()
+    return 1 if upload_failed else 0
+
+
+def main():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = DATA_DIR / "scraper.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("[skip] another scraper run is still active")
+            return 0
+        try:
+            return run_once()
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 if __name__ == "__main__":

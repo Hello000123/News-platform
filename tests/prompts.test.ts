@@ -16,6 +16,7 @@ import {
   extractVerbatimMixedLanguageTerms,
   extractVerbatimSourceScriptNames,
   FORMAT_CORRECTION_SYSTEM_PROMPT,
+  numericFactHasSupport,
   preservesRequestedOutputLanguage,
   preservesRequiredOutputLanguage,
   QUOTATION_CORRECTION_SYSTEM_PROMPT,
@@ -321,10 +322,24 @@ describe("agent prompts", () => {
     expect(unchangedPrompt).toContain("候選稿與現行編輯基準完全相同");
     expect(unchangedPrompt).toContain("改寫模式：完整文章改寫");
     expect(unchangedPrompt).toContain("語言鎖定：繁體中文");
-    expect(validationPrompt).toContain("只限一次修正");
+    expect(validationPrompt).toContain("只限本次修正");
     expect(validationPrompt).toContain("候選稿沒有採用第一行標題、第二行留空");
     expect(validationPrompt).toContain("INVALID_REWRITE_FORMAT");
-    expect(validationPrompt).not.toContain("The candidate did not use the required format.");
+    expect(validationPrompt).toContain("The candidate did not use the required format.");
+
+    const numericValidationPrompt = createRewriteValidationCorrectionPrompt(
+      "Intel提供三套配置\n\n報道列出桌面、流動及Edge配置。",
+      {
+        code: "UNTRACEABLE_REWRITE_NUMBER",
+        message:
+          "The Rewrite Agent introduced unsupported numeric facts: “三” (count:unit).",
+      },
+      editorialSource,
+      highReview,
+    );
+    expect(numericValidationPrompt).toContain("“三” (count:unit)");
+    expect(numericValidationPrompt).toContain("不得自行計算後加入");
+    expect(numericValidationPrompt).toContain("不得改動產品或版本名稱");
   });
 
   it("sends the current version, ordered prior turns, all instructions, and latest preference", () => {
@@ -481,7 +496,7 @@ describe("agent prompts", () => {
     ).toEqual(["王繹嘉", "陳凱然", "馬端行", "劉彥彤", "程熹", "羅苡庭"]);
   });
 
-  it("normalizes English dates, multipliers, and hyphenated inch measurements", () => {
+  it("normalizes English dates, decades, ranked lists, written numbers, and measurements", () => {
     expect(
       extractNumericFacts(
         "The console launched in 2013, its successor arrived in 2020, and support is expected through 2027.",
@@ -518,6 +533,225 @@ describe("agent prompts", () => {
         { value: "24", unit: "length:inch", raw: "24" },
       ]),
     );
+    expect(extractNumericFacts("NASA conducted impact tests in the 70s.")).toContainEqual({
+      value: "1970",
+      unit: "time:year",
+      raw: "70",
+    });
+    expect(extractNumericFacts("NASA曾於70年代進行實驗。")).toContainEqual({
+      value: "1970",
+      unit: "time:year",
+      raw: "70",
+    });
+    expect(extractNumericFacts("NASA曾於1970年代進行實驗。")).toContainEqual({
+      value: "1970",
+      unit: "time:year",
+      raw: "1970",
+    });
+    expect(extractNumericFacts("The program ran for 70 years.")).toContainEqual({
+      value: "70",
+      unit: "time:year",
+      raw: "70",
+    });
+    expect(
+      extractNumericFacts("8 Best Password Managers (2026), Tested and Reviewed"),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "8", unit: "count:item", raw: "8" },
+        { value: "2026", unit: "time:year", raw: "2026" },
+      ]),
+    );
+    expect(
+      extractNumericFacts("The debris will travel at seven times the speed of sound."),
+    ).toContainEqual({
+      value: "7",
+      unit: "ratio:multiplier",
+      raw: "seven",
+    });
+    expect(extractNumericFacts("Two styles are easier for car cleaning.")).toContainEqual({
+      value: "2",
+      unit: "count:item",
+      raw: "Two",
+    });
+    expect(
+      extractNumericFacts(
+        "The device has a 360° hinge, weighs 1.27kg, and offers two modes.",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "360", unit: "angle:degree", raw: "360" },
+        { value: "1.27", unit: "kg", raw: "1.27" },
+        { value: "2", unit: "count:item", raw: "two" },
+      ]),
+    );
+    expect(
+      extractNumericFacts("機身支援360度翻轉，重量為1.27公斤，並提供兩種模式。"),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "360", unit: "angle:degree", raw: "360" },
+        { value: "1.27", unit: "kg", raw: "1.27" },
+        { value: "2", unit: "count:item", raw: "兩" },
+      ]),
+    );
+    expect(
+      extractNumericFacts(
+        "Google planned an AI Studio app and a working prototype for mobile users.",
+      ),
+    ).toContainEqual({ value: "1", unit: "count:item", raw: "an AI Studio app" });
+    expect(
+      extractNumericFacts(
+        "Creators need at least 500 verified followers and 500,000 Home timeline views within 90 days.",
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        { value: "500", unit: "count:person", raw: "500" },
+        { value: "500000", unit: "count:occurrence", raw: "500,000" },
+        { value: "90", unit: "time:day", raw: "90" },
+      ]),
+    );
+    expect(extractNumericFacts("報道提到數十個熱門帳戶。"))
+      .not.toContainEqual(expect.objectContaining({ value: "10", unit: "count:item" }));
+  });
+
+  it("normalizes Simplified and Traditional Chinese quantity classifiers equally", () => {
+    const simplifiedFacts = extractNumericFacts(
+      "微软发现超过250个相关域名，并运行9个子进程。这是一项招聘计划，涉及第一座和第二座工厂。",
+    );
+    const traditionalFacts = extractNumericFacts(
+      "微軟發現超過250個相關域名，並運行9個子程序。這是一項招聘計劃，涉及第一座和第二座工廠。",
+    );
+
+    expect(simplifiedFacts).toEqual(
+      expect.arrayContaining([
+        { value: "250", unit: "count:item", raw: "250" },
+        { value: "9", unit: "count:item", raw: "9" },
+        { value: "1", unit: "count:item", raw: "一" },
+        { value: "1", unit: "count:unit", raw: "一" },
+        { value: "2", unit: "count:unit", raw: "二" },
+      ]),
+    );
+    expect(traditionalFacts.every((fact) => numericFactHasSupport(fact, simplifiedFacts))).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["2个项目", "2個項目", "count:item"],
+    ["2项计划", "2項計劃", "count:item"],
+    ["2种模式", "2種模式", "count:item"],
+    ["2间酒店", "2間酒店", "count:間"],
+    ["2辆汽车", "2輛汽車", "count:unit"],
+    ["2类产品", "2類產品", "count:item"],
+    ["2港币", "2港幣", "currency:hkd"],
+    ["2人民币", "2人民幣", "currency:cny"],
+  ])("matches cross-script numeric units: %s → %s", (simplified, traditional, unit) => {
+    const [simplifiedFact] = extractNumericFacts(simplified);
+    const [traditionalFact] = extractNumericFacts(traditional);
+
+    expect(simplifiedFact).toMatchObject({ value: "2", unit });
+    expect(traditionalFact).toMatchObject({ value: "2", unit });
+    expect(numericFactHasSupport(traditionalFact, [simplifiedFact])).toBe(true);
+  });
+
+  it("matches a classifier when the Simplified source uses an intervening modifier", () => {
+    const sourceFacts = extractNumericFacts("系统需要一整套原生应用。 ");
+    const [candidateFact] = extractNumericFacts("系統需要一套原生應用。");
+
+    expect(sourceFacts).toContainEqual({ value: "1", unit: "count:unit", raw: "一" });
+    expect(candidateFact).toEqual({ value: "1", unit: "count:unit", raw: "一" });
+    expect(numericFactHasSupport(candidateFact, sourceFacts)).toBe(true);
+  });
+
+  it("matches approximate Chinese source counts to localized classifiers", () => {
+    const sourceFacts = extractNumericFacts("我们把2500多个元器件塞进了主板里。");
+    const [candidateFact] = extractNumericFacts("華為把超過2500個元件放進主板。");
+
+    expect(sourceFacts).toContainEqual({ value: "2500", unit: "count:item", raw: "2500" });
+    expect(candidateFact).toEqual({ value: "2500", unit: "count:item", raw: "2500" });
+    expect(numericFactHasSupport(candidateFact, sourceFacts)).toBe(true);
+  });
+
+  it("keeps product-version digits separate from following Chinese words", () => {
+    const facts = extractNumericFacts(
+      "Windows 11天氣應用採用WinUI 3介面，並與Xe3P及RDNA 3.5架構比較；測試持續12天。",
+    );
+
+    expect(facts).toEqual(
+      expect.arrayContaining([
+        { value: "11", unit: null, raw: "11" },
+        { value: "3", unit: null, raw: "3" },
+        { value: "3.5", unit: null, raw: "3.5" },
+        { value: "12", unit: "time:day", raw: "12" },
+      ]),
+    );
+    expect(facts).not.toContainEqual({ value: "11", unit: "time:day", raw: "11" });
+  });
+
+  it("normalizes English hardware counts to Chinese item classifiers", () => {
+    const sourceFacts = extractNumericFacts(
+      "Intel offers 256 P-Cores and 128 E-Cores. The GPU has 12 Xe3P cores, 4 P-Core, 8 E-Cores, 4 LP-E cores, 16 threads, two dedicated VCCGT phases, and one macro PD segment.",
+    );
+    const candidateFacts = extractNumericFacts(
+      "晶片設有256個P核心、128個E核心、12 Xe3P核心、4 P核心、8 E核心、4 LP-E核心、16條執行緒、兩個VCCGT供電相位及一個PD區段。",
+    );
+
+    expect(sourceFacts).toEqual(
+      expect.arrayContaining([
+        { value: "256", unit: "count:item", raw: "256" },
+        { value: "128", unit: "count:item", raw: "128" },
+        { value: "12", unit: "count:item", raw: "12" },
+        { value: "4", unit: "count:item", raw: "4" },
+        { value: "8", unit: "count:item", raw: "8" },
+        { value: "16", unit: "count:item", raw: "16" },
+        { value: "2", unit: "count:item", raw: "two" },
+        { value: "1", unit: "count:item", raw: "one" },
+      ]),
+    );
+    expect(candidateFacts.every((fact) => numericFactHasSupport(fact, sourceFacts))).toBe(true);
+  });
+
+  it("normalizes English process and writer counts", () => {
+    const sourceFacts = extractNumericFacts(
+      "Windows Latest spotted nine Chromium processes after one of its writers opened the app.",
+    );
+    const candidateFacts = extractNumericFacts(
+      "一名撰稿人開啟應用程式後，發現系統運行9個Chromium程序。",
+    );
+
+    expect(sourceFacts).toEqual(
+      expect.arrayContaining([
+        { value: "9", unit: "count:item", raw: "nine" },
+        { value: "1", unit: "count:person", raw: "one" },
+      ]),
+    );
+    expect(candidateFacts.every((fact) => numericFactHasSupport(fact, sourceFacts))).toBe(true);
+  });
+
+  it("does not turn an enumerated list into an explicit inferred count", () => {
+    const sourceFacts = extractNumericFacts(
+      "The iGPU will come in desktop, Edge, and mobile configurations.",
+    );
+    const [candidateFact] = extractNumericFacts("iGPU將提供三套配置。");
+
+    expect(candidateFact).toEqual({ value: "3", unit: "count:item", raw: "三" });
+    expect(numericFactHasSupport(candidateFact, sourceFacts)).toBe(false);
+  });
+
+  it("excludes grammatical Chinese singulars while retaining material person counts", () => {
+    const grammatical = extractNumericFacts(
+      "例如一名用戶可建立另一款應用程式，讓每一位讀者按需要使用。",
+    );
+    expect(grammatical).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "1", unit: "count:person" }),
+        expect.objectContaining({ value: "1", unit: "count:item" }),
+      ]),
+    );
+    expect(extractNumericFacts("公司聘用一名測試員。")).toContainEqual({
+      value: "1",
+      unit: "count:person",
+      raw: "一",
+    });
   });
 
   it("detects and enforces the primary input language automatically", () => {

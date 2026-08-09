@@ -387,7 +387,7 @@ describe("rewrite workflow", () => {
       validation: { status: "passed_after_retry", attempts: 2 },
     });
     expect(completion).toHaveBeenCalledTimes(2);
-    expect(completion.mock.calls[1][0].userPrompt).toContain("只限一次修正");
+    expect(completion.mock.calls[1][0].userPrompt).toContain("只限本次修正");
     expect(completion.mock.calls[1][0].userPrompt).toContain("INVALID_REWRITE_FORMAT");
     expect(completion.mock.calls[1][0]).toMatchObject({
       systemPrompt: expect.stringContaining("機械式新聞文章格式校正器"),

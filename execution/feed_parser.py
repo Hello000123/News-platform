@@ -14,6 +14,20 @@ def _iso(entry):
     return entry.get("published") or entry.get("updated")
 
 
+def _image_url(entry):
+    for key in ("media_content", "media_thumbnail"):
+        for image in entry.get(key, []):
+            if image.get("url"):
+                return image["url"]
+    for enclosure in entry.get("enclosures", []):
+        if enclosure.get("href") and str(enclosure.get("type", "")).startswith("image/"):
+            return enclosure["href"]
+    image = entry.get("image")
+    if isinstance(image, dict):
+        return image.get("href") or image.get("url")
+    return None
+
+
 def parse_feed_text(text, feed_url, max_items=20):
     feed = feedparser.parse(text)
     if feed.bozo and not feed.entries:
@@ -30,6 +44,7 @@ def parse_feed_text(text, feed_url, max_items=20):
                 "author": entry.get("author"),
                 "published_at": _iso(entry),
                 "content_html": content_html or "",
+                "image_url": _image_url(entry),
             }
         )
     return items

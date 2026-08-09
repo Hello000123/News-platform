@@ -78,6 +78,22 @@ describe("RSS/Atom feed parser", () => {
     expect(items[1].description).toBe("Content two");
   });
 
+  it("falls back to a non-alternate Atom link when no alternate link exists", () => {
+    const xml = `<feed xmlns="http://www.w3.org/2005/Atom">
+      <title>Atom Feed</title>
+      <entry>
+        <title>Self-linked entry</title>
+        <link rel="self" href="https://atom.example/self-linked" />
+      </entry>
+    </feed>`;
+    expect(parseFeedXml(xml)).toEqual([
+      expect.objectContaining({
+        title: "Self-linked entry",
+        url: "https://atom.example/self-linked",
+      }),
+    ]);
+  });
+
   it("ignores items without a resolvable title or link", () => {
     const xml = `<rss version="2.0"><channel><title>T</title>
       <item><title>No link</title><link></link></item>

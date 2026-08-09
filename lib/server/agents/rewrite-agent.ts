@@ -5,6 +5,7 @@ import {
   createRewriteUserPrompt,
   createUnchangedRewriteCorrectionPrompt,
   CONSERVATIVE_REWRITE_CORRECTION_SYSTEM_PROMPT,
+  extractEnglishSmallNumberValues,
   extractNumericFacts,
   extractVerbatimSourceScriptNames,
   FORMAT_CORRECTION_SYSTEM_PROMPT,
@@ -132,42 +133,6 @@ function publicQuotationIssues(
       }),
     ),
   );
-}
-
-const englishSmallNumberValues: Readonly<Record<string, string>> = {
-  zero: "0",
-  one: "1",
-  two: "2",
-  three: "3",
-  four: "4",
-  five: "5",
-  six: "6",
-  seven: "7",
-  eight: "8",
-  nine: "9",
-  ten: "10",
-  eleven: "11",
-  twelve: "12",
-  thirteen: "13",
-  fourteen: "14",
-  fifteen: "15",
-  sixteen: "16",
-  seventeen: "17",
-  eighteen: "18",
-  nineteen: "19",
-  twenty: "20",
-};
-
-function extractEnglishSmallNumberValues(text: string) {
-  const words =
-    text
-      .toLocaleLowerCase("en")
-      .match(
-        /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/gu,
-      ) ?? [];
-  return words
-    .map((word) => englishSmallNumberValues[word])
-    .filter((value, index, values) => values.indexOf(value) === index);
 }
 
 interface CandidateValidationFailure {
@@ -305,6 +270,69 @@ function validateSafeCandidate(
 ) {
   const failures = collectSafeCandidateFailures(candidate, source, context);
   if (failures.length > 0) throw candidateValidationError(failures);
+}
+
+/**
+ * Final, non-generative recovery for headline-bounded pipeline rewrites. If the
+ * model has exhausted both focused corrections and the only remaining safety
+ * problem is an unsupported number in an optional body sentence, omit that
+ * sentence and run the complete validator again. Never rewrite the headline or
+ * numeric text in place: doing so could silently change the number's subject.
+ */
+function omitUnsupportedNumericSentences(
+  candidate: string,
+  source: SourceSnapshot,
+  context: RewriteContext,
+) {
+  if (!context.relaxedFidelity || !hasRequiredRewriteFormat(candidate)) return null;
+  const failures = collectSafeCandidateFailures(candidate, source, context);
+  if (
+    failures.length === 0 ||
+    failures.some(({ code }) => code !== "UNTRACEABLE_REWRITE_NUMBER")
+  ) {
+    return null;
+  }
+
+  const normalized = candidate.replace(/\r\n?/gu, "\n").trim();
+  const boundary = normalized.indexOf("\n\n");
+  if (boundary < 1) return null;
+  const headline = normalized.slice(0, boundary).trim();
+  const body = normalized.slice(boundary + 2).trim();
+  const evidenceFacts = extractNumericFacts(rewriteEvidenceCorpus(source, true));
+  const hasUnsupportedNumber = (text: string) =>
+    extractNumericFacts(text).some(
+      (fact) => !numericFactHasSupport(fact, evidenceFacts),
+    );
+
+  // The headline carries the canonical story identity. A model must repair an
+  // unsafe headline explicitly; deterministic omission is body-only.
+  if (hasUnsupportedNumber(headline)) return null;
+
+  let removed = false;
+  let retainedSentenceCount = 0;
+  const repairedParagraphs = body
+    .split(/\n[\t \f\v]*\n+/gu)
+    .map((paragraph) => {
+      const sentences = paragraph
+        .trim()
+        .split(/(?<=[。！？!?])\s*|(?<=\.)\s+/u)
+        .map((sentence) => sentence.trim())
+        .filter(Boolean);
+      const retained = sentences.filter((sentence) => {
+        if (!hasUnsupportedNumber(sentence)) return true;
+        removed = true;
+        return false;
+      });
+      retainedSentenceCount += retained.length;
+      return retained.join("");
+    })
+    .filter(Boolean);
+
+  if (!removed || repairedParagraphs.length === 0 || retainedSentenceCount < 2) {
+    return null;
+  }
+  const repaired = `${headline}\n\n${repairedParagraphs.join("\n\n")}`;
+  return repaired === normalized ? null : repaired;
 }
 
 function untraceableDirectQuotationError(
@@ -573,7 +601,7 @@ function quotationError(
 ) {
   return new AppError(
     "INEXACT_REWRITE_QUOTATION",
-    "Quotation preservation still failed after one automatic correction attempt. Review the exact differences below, then retry the rewrite.",
+    "Quotation preservation still failed after the automatic correction attempts. Review the exact differences below, then retry the rewrite.",
     422,
     {
       publicDetails: {
@@ -718,6 +746,7 @@ export async function runRewriteAgent(
         );
 
   let secondCandidate = "";
+  let completedAttempts: 2 | 3 = 2;
   try {
     const isQuotationCorrection = !firstSafetyError && !firstIsUnchanged;
     const isSourceFidelityCorrection = firstSafetyError?.status === 422;
@@ -753,7 +782,80 @@ export async function runRewriteAgent(
     if (!firstSafetyError && !firstIsUnchanged && firstIssues.length > 0) {
       throw quotationError(firstIssues, firstCandidate, 2);
     }
-    if (error instanceof AppError && secondCandidate) {
+    if (
+      error instanceof AppError &&
+      secondCandidate &&
+      context.relaxedFidelity &&
+      validationFailuresByError.has(error)
+    ) {
+      let thirdCandidate = "";
+      try {
+        const isFormatCorrection =
+          error.code === "INVALID_REWRITE_FORMAT" || error.code === "EMPTY_REWRITE";
+        thirdCandidate = await generateCandidate(
+          createRewriteValidationCorrectionPrompt(
+            secondCandidate,
+            {
+              code: error.code,
+              message: error.message,
+              failures: validationFailuresFor(error).map(({ code, message }) => ({
+                code,
+                message,
+              })),
+            },
+            source,
+            review,
+            context,
+          ),
+          completionRunner,
+          model,
+          isFormatCorrection
+            ? FORMAT_CORRECTION_SYSTEM_PROMPT
+            : SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
+          0,
+        );
+        thirdCandidate = restoreHeadlineAfterFocusedCorrection(
+          thirdCandidate,
+          secondCandidate,
+        );
+        try {
+          validateSafeCandidate(thirdCandidate, source, context);
+        } catch (validationError) {
+          const repairedCandidate = omitUnsupportedNumericSentences(
+            thirdCandidate,
+            source,
+            context,
+          );
+          if (!repairedCandidate) throw validationError;
+          try {
+            validateSafeCandidate(repairedCandidate, source, context);
+          } catch {
+            throw validationError;
+          }
+          thirdCandidate = repairedCandidate;
+        }
+        secondCandidate = thirdCandidate;
+        completedAttempts = 3;
+      } catch (thirdError) {
+        if (thirdError instanceof AppError && thirdCandidate) {
+          throw new AppError(
+            thirdError.code,
+            thirdError.publicMessage,
+            thirdError.status,
+            {
+              cause: thirdError,
+              publicDetails: {
+                ...thirdError.publicDetails,
+                retryable: thirdError.publicDetails?.retryable ?? true,
+                candidateText: thirdCandidate.slice(0, MAX_REFERENCE_CHARS),
+                attempts: 3,
+              },
+            },
+          );
+        }
+        throw thirdError;
+      }
+    } else if (error instanceof AppError && secondCandidate) {
       throw new AppError(error.code, error.publicMessage, error.status, {
         cause: error,
         publicDetails: {
@@ -763,12 +865,13 @@ export async function runRewriteAgent(
           attempts: 2,
         },
       });
+    } else {
+      throw error;
     }
-    throw error;
   }
 
   if (isEditingBaselineEcho(secondCandidate, source, context)) {
-    throw unchangedError(secondCandidate, 2);
+    throw unchangedError(secondCandidate, completedAttempts);
   }
 
   const secondQuotationValidation = validateQuotationPreservation(
@@ -783,7 +886,7 @@ export async function runRewriteAgent(
     if (punctuationRepairedCandidate) {
       validateSafeCandidate(punctuationRepairedCandidate, source, context);
       if (isEditingBaselineEcho(punctuationRepairedCandidate, source, context)) {
-        throw unchangedError(punctuationRepairedCandidate, 2);
+        throw unchangedError(punctuationRepairedCandidate, completedAttempts);
       }
       const repairedValidation = validateQuotationPreservation(
         source.primaryText,
@@ -796,7 +899,7 @@ export async function runRewriteAgent(
         source.primaryText,
         punctuationRepairedCandidate,
         repairedValidation,
-        2,
+        completedAttempts,
         context.relaxedFidelity,
       );
       if (
@@ -806,7 +909,7 @@ export async function runRewriteAgent(
       ) {
         return rewriteApiResponseSchema.parse({
           finalText: punctuationRepairedCandidate,
-          validation: { status: "passed_after_retry", attempts: 2 },
+          validation: { status: "passed_after_retry", attempts: completedAttempts },
         });
       }
       if (untraceableRepairedQuotation) throw untraceableRepairedQuotation;
@@ -815,7 +918,7 @@ export async function runRewriteAgent(
     throw quotationError(
       publicQuotationIssues(secondQuotationValidation.issues, source.primaryText),
       secondCandidate,
-      2,
+      completedAttempts,
     );
   }
   const untraceableSecondQuotation = untraceableDirectQuotationError(
@@ -826,13 +929,13 @@ export async function runRewriteAgent(
     source.primaryText,
     secondCandidate,
     secondQuotationValidation,
-    2,
+    completedAttempts,
     context.relaxedFidelity,
   );
   if (secondAttributionError) throw secondAttributionError;
 
   return rewriteApiResponseSchema.parse({
     finalText: secondCandidate,
-    validation: { status: "passed_after_retry", attempts: 2 },
+    validation: { status: "passed_after_retry", attempts: completedAttempts },
   });
 }

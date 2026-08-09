@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { AppError, isAppError } from "@/lib/server/errors";
+import { AppError, isAppError, type PublicErrorDetails } from "@/lib/server/errors";
 import { MAX_REQUEST_BYTES, type ApiErrorResponse } from "@/lib/shared/contracts";
 
 const responseHeaders = {
@@ -56,7 +56,10 @@ export function jsonResponse<T>(body: T, status = 200) {
   return NextResponse.json(body, { status, headers: responseHeaders });
 }
 
-export function errorResponse(error: unknown) {
+export function errorResponse(
+  error: unknown,
+  extraPublicDetails: Pick<PublicErrorDetails, "debugId"> = {},
+) {
   if (error instanceof ZodError) {
     const unsupportedModel = error.issues.some((issue) => issue.path.at(-1) === "model");
     const body: ApiErrorResponse = {
@@ -66,6 +69,7 @@ export function errorResponse(error: unknown) {
           ? "Unsupported AI model. Choose DeepSeek V4 Pro or Grok 4.5."
           : "Check the submitted draft and try again.",
         details: error.issues.map((issue) => issue.message),
+        ...extraPublicDetails,
       },
     };
     return jsonResponse(body, 400);
@@ -77,6 +81,7 @@ export function errorResponse(error: unknown) {
         code: error.code,
         message: error.publicMessage,
         ...error.publicDetails,
+        ...extraPublicDetails,
       },
     };
     return jsonResponse(body, error.status);
@@ -86,6 +91,7 @@ export function errorResponse(error: unknown) {
     error: {
       code: "INTERNAL_ERROR",
       message: "An unexpected server error occurred. Please try again.",
+      ...extraPublicDetails,
     },
   };
   return jsonResponse(body, 500);

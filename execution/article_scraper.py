@@ -1,3 +1,5 @@
+from urllib.parse import urljoin, urlparse
+
 from bs4 import BeautifulSoup
 
 from utils import fetch_text, get_meta, html_to_text
@@ -13,6 +15,13 @@ def _pick(soup, selectors):
         if el:
             return el
     return None
+
+
+def _public_image_url(page_url, raw_url):
+    if not raw_url:
+        return None
+    absolute = urljoin(page_url, raw_url.strip())
+    return absolute if urlparse(absolute).scheme in ("http", "https") else None
 
 
 def parse_article_soup(soup, url, selectors, known_published_at=None, known_author=None):
@@ -38,15 +47,25 @@ def parse_article_soup(soup, url, selectors, known_published_at=None, known_auth
         result["content_html"] = content_el.decode_contents()
         result["content_text"] = html_to_text(result["content_html"])
 
-    if selectors.get("image"):
-        img_el = _pick(soup, selectors["image"])
-        if img_el:
-            result["image_url"] = (
-                img_el.get("data-src")
-                or img_el.get("data-lazy-src")
-                or img_el.get("src")
-                or img_el.get("href")
-            )
+    img_el = _pick(soup, selectors.get("image", []))
+    if img_el:
+        result["image_url"] = _public_image_url(
+            url,
+            img_el.get("data-src")
+            or img_el.get("data-lazy-src")
+            or img_el.get("src")
+            or img_el.get("href"),
+        )
+    if not result["image_url"]:
+        meta_image = get_meta(
+            soup,
+            ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"],
+        )
+        image_link = soup.find("link", rel="image_src")
+        result["image_url"] = _public_image_url(
+            url,
+            meta_image or (image_link.get("href") if image_link else None),
+        )
 
     if not result["author"] and selectors.get("author"):
         author_el = _pick(soup, selectors["author"])

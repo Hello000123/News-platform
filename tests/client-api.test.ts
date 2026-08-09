@@ -7,8 +7,10 @@ import {
   requestRewrite,
 } from "@/lib/client/api";
 import {
+  FeedRequestError,
   SCRAPED_IMPORT_SAFE_BYTES,
   importScrapedArticles,
+  rewritePipelineArticle,
 } from "@/lib/client/feeds-api";
 import type { RewriteHistoryEntryInput, SourceSnapshot } from "@/lib/shared/contracts";
 import type { ScrapedArticleInput } from "@/lib/shared/feeds-contracts";
@@ -23,6 +25,39 @@ const source: SourceSnapshot = {
 describe("client API response validation", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("preserves retryability and the debug ID for a failed pipeline rewrite", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "UNTRACEABLE_REWRITE_NUMBER",
+              message: "The final candidate still contained an unsupported number.",
+              retryable: true,
+              debugId: "debug-retryable-pipeline",
+            },
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    let failure: FeedRequestError | null = null;
+    try {
+      await rewritePipelineArticle("article-1");
+    } catch (error) {
+      failure = error as FeedRequestError;
+    }
+
+    expect(failure).toMatchObject({
+      code: "UNTRACEABLE_REWRITE_NUMBER",
+      status: 422,
+      retryable: true,
+      debugId: "debug-retryable-pipeline",
+    });
   });
 
   it.each([

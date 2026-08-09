@@ -5,10 +5,12 @@ import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  commitPipelineArticleRewrite,
   createFeed,
   deleteFeed,
   getFeedById,
   getPipelineArticleById,
+  getPipelineRewriteCommit,
   getPublicArticleById,
   importScrapedArticles,
   insertPipelineArticles,
@@ -24,6 +26,12 @@ import {
   updatePipelineArticlePost,
   updatePipelineArticleStatus,
 } from "@/lib/server/feeds/repository";
+import {
+  listPipelineRewriteDebugLogs,
+  recordPipelineRewriteDebugLog,
+  rewriteDebugFailureFields,
+} from "@/lib/server/feeds/rewrite-debug";
+import { AppError } from "@/lib/server/errors";
 import { fetchAndIngestFeed, ingestAllFeeds } from "@/lib/server/feeds/pipeline";
 import type { SourceDnsLookup } from "@/lib/server/sources/source-context";
 import type { FeedView } from "@/lib/shared/feeds-contracts";
@@ -74,6 +82,8 @@ describe("feeds repository", () => {
       "0008_pipeline_article_merges.sql",
       "0010_pipeline_article_publication.sql",
       "0011_pipeline_article_categories.sql",
+      "0012_pipeline_rewrite_debug_logs.sql",
+      "0013_pipeline_rewrite_commits.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);
@@ -126,6 +136,290 @@ describe("feeds repository", () => {
     const deleted = await deleteFeed(database, feed.id);
     expect(deleted).toBe(true);
     expect(await listFeeds(database)).toHaveLength(0);
+  });
+
+  it("persists sanitized rewrite diagnostics and filters client-visible logs", async () => {
+    database = await setup();
+    const failure = new AppError(
+      "UNTRACEABLE_REWRITE_NUMBER",
+      "The rewrite introduced an unsupported number.",
+      422,
+      {
+        publicDetails: {
+          details: ["UNTRACEABLE_REWRITE_NUMBER: Remove the unsupported value."],
+          retryable: true,
+          stage: "rewrite_request",
+          provider: "xAI",
+          model: "grok-4.5",
+          httpStatus: 200,
+          causeSummary: "Candidate failed deterministic validation.",
+          candidateText: "This full candidate must never be persisted.",
+          attempts: 3,
+        },
+      },
+    );
+    const debugId = await recordPipelineRewriteDebugLog(database, {
+      batchId: "top5-batch-1",
+      articleId: "article-1",
+      articleTitle: "Hotel rating story",
+      requestedByUserId: "emp-1",
+      requestedModel: "grok-4.5",
+      outputLanguage: "traditional_chinese",
+      requestedLengthOption: "more_detailed",
+      effectiveLengthOption: "more_detailed",
+      relatedReportCount: 1,
+      sourceOrigin: "rss_preview",
+      sourceCharacters: 1_262,
+      linkedCharacters: null,
+      outcome: "failure",
+      ...rewriteDebugFailureFields(failure),
+      durationMs: 91_000,
+    });
+    await recordPipelineRewriteDebugLog(database, {
+      batchId: "other-batch",
+      articleId: "article-2",
+      articleTitle: "Other user's story",
+      requestedByUserId: "another-user",
+      requestedModel: "deepseek-v4-pro",
+      outputLanguage: "traditional_chinese",
+      requestedLengthOption: null,
+      effectiveLengthOption: null,
+      relatedReportCount: 1,
+      sourceOrigin: "saved_scraper",
+      sourceCharacters: 800,
+      linkedCharacters: null,
+      outcome: "success",
+      validationStatus: "passed",
+      attempts: 1,
+      durationMs: 10_000,
+    });
+
+    const [log] = await listPipelineRewriteDebugLogs(database, {
+      requestedByUserId: "emp-1",
+    });
+    expect(log).toMatchObject({
+      id: debugId,
+      batchId: "top5-batch-1",
+      articleTitle: "Hotel rating story",
+      outcome: "failure",
+      errorCode: "UNTRACEABLE_REWRITE_NUMBER",
+      attempts: 3,
+      candidateCharacters: 44,
+      sourceOrigin: "rss_preview",
+      sourceCharacters: 1_262,
+    });
+    expect(log.errorDetails).toEqual([
+      "UNTRACEABLE_REWRITE_NUMBER: Remove the unsupported value.",
+    ]);
+
+    const rawLog = await database
+      .prepare("SELECT * FROM pipeline_rewrite_debug_logs WHERE id = ?")
+      .bind(debugId)
+      .first<Record<string, unknown>>();
+    expect(JSON.stringify(rawLog)).not.toContain("This full candidate must never be persisted.");
+    expect(rawLog).not.toHaveProperty("candidate_text");
+    expect(rawLog).not.toHaveProperty("source_text");
+  });
+
+  it("atomically commits a rewrite, merges duplicates, and makes the batch idempotent", async () => {
+    database = await setup();
+    const feed = await createFeed(
+      database,
+      { name: "Atomic rewrite feed", url: "https://atomic.example/feed.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Canonical atomic story",
+        url: "https://atomic.example/canonical",
+        description: "Canonical description",
+        author: null,
+        pubDate: 1_786_200_000,
+      },
+      {
+        title: "Related atomic story one",
+        url: "https://atomic.example/related-one",
+        description: "Related description one",
+        author: null,
+        pubDate: 1_786_199_999,
+      },
+      {
+        title: "Related atomic story two",
+        url: "https://atomic.example/related-two",
+        description: "Related description two",
+        author: null,
+        pubDate: 1_786_199_998,
+      },
+    ]);
+    const articles = await listPipelineArticles(database, "new");
+    const canonical = articles.find(({ title }) => title === "Canonical atomic story")!;
+    const related = articles.filter(({ id }) => id !== canonical.id);
+    const result = await commitPipelineArticleRewrite(database, {
+      batchId: "top5-idempotent-batch",
+      articleId: canonical.id,
+      rewrittenText: "原子標題\n\n完整而安全的原子新聞正文。",
+      status: "rewritten",
+      precondition: canonical,
+      relatedArticleIds: related.map(({ id }) => id),
+      requestedByUserId: "emp-1",
+      requestedModel: "grok-4.5",
+      outputLanguage: "traditional_chinese",
+      requestedLengthOption: "more_detailed",
+      relatedReportCount: 3,
+      validationStatus: "passed_after_retry",
+      attempts: 3,
+    });
+    expect(result).toMatchObject({ committed: true, mergedCount: 2 });
+    expect(await getPipelineArticleById(database, canonical.id)).toMatchObject({
+      status: "rewritten",
+      rewrittenText: "原子標題\n\n完整而安全的原子新聞正文。",
+    });
+    for (const article of related) {
+      await expect(getPipelineArticleById(database, article.id)).resolves.toMatchObject({
+        mergedIntoArticleId: canonical.id,
+      });
+    }
+    await expect(
+      getPipelineRewriteCommit(database, {
+        batchId: "top5-idempotent-batch",
+        articleId: canonical.id,
+        requestedByUserId: "emp-1",
+      }),
+    ).resolves.toMatchObject({
+      validationStatus: "passed_after_retry",
+      attempts: 3,
+    });
+    const duplicateCommit = await commitPipelineArticleRewrite(database, {
+      batchId: "top5-idempotent-batch",
+      articleId: canonical.id,
+      rewrittenText: "不得覆寫的第二份稿件",
+      status: "rewritten",
+      precondition: canonical,
+      relatedArticleIds: related.map(({ id }) => id),
+      requestedByUserId: "emp-1",
+      requestedModel: "grok-4.5",
+      outputLanguage: "traditional_chinese",
+      requestedLengthOption: "more_detailed",
+      relatedReportCount: 3,
+      validationStatus: "passed",
+      attempts: 1,
+    });
+    expect(duplicateCommit.committed).toBe(false);
+    await expect(getPipelineArticleById(database, canonical.id)).resolves.toMatchObject({
+      rewrittenText: "原子標題\n\n完整而安全的原子新聞正文。",
+    });
+    await expect(
+      getPipelineRewriteCommit(database, {
+        batchId: "top5-idempotent-batch",
+        articleId: canonical.id,
+        requestedByUserId: "another-user",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("rolls back the whole rewrite commit when a selected duplicate changed", async () => {
+    database = await setup();
+    const feed = await createFeed(
+      database,
+      { name: "Conflicted rewrite feed", url: "https://conflict.example/feed.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Conflict canonical",
+        url: "https://conflict.example/canonical",
+        description: null,
+        author: null,
+        pubDate: 1_786_200_000,
+      },
+      {
+        title: "Conflict related one",
+        url: "https://conflict.example/one",
+        description: null,
+        author: null,
+        pubDate: 1_786_199_999,
+      },
+      {
+        title: "Conflict related two",
+        url: "https://conflict.example/two",
+        description: null,
+        author: null,
+        pubDate: 1_786_199_998,
+      },
+    ]);
+    const articles = await listPipelineArticles(database, "new");
+    const canonical = articles.find(({ title }) => title === "Conflict canonical")!;
+    const related = articles.filter(({ id }) => id !== canonical.id);
+    await updatePipelineArticleStatus(database, related[0].id, "discarded");
+
+    const result = await commitPipelineArticleRewrite(database, {
+      batchId: "top5-conflicted-batch",
+      articleId: canonical.id,
+      rewrittenText: "不應提交的稿件",
+      status: "rewritten",
+      precondition: canonical,
+      relatedArticleIds: related.map(({ id }) => id),
+      requestedByUserId: "emp-1",
+      requestedModel: "grok-4.5",
+      outputLanguage: "traditional_chinese",
+      requestedLengthOption: "more_detailed",
+      relatedReportCount: 3,
+      validationStatus: "passed",
+      attempts: 1,
+    });
+
+    expect(result).toMatchObject({ committed: false, mergedCount: 0 });
+    await expect(getPipelineArticleById(database, canonical.id)).resolves.toMatchObject({
+      status: "new",
+      rewrittenText: null,
+    });
+    await expect(getPipelineArticleById(database, related[1].id)).resolves.toMatchObject({
+      mergedIntoArticleId: null,
+    });
+    await expect(
+      getPipelineRewriteCommit(database, {
+        batchId: "top5-conflicted-batch",
+        articleId: canonical.id,
+        requestedByUserId: "emp-1",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("atomically commits a Top 5 story that has no duplicate reports", async () => {
+    database = await setup();
+    const feed = await createFeed(
+      database,
+      { name: "Single rewrite feed", url: "https://single.example/feed.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Single atomic story",
+        url: "https://single.example/story",
+        description: "Single story description",
+        author: null,
+        pubDate: 1_786_200_000,
+      },
+    ]);
+    const [article] = await listPipelineArticles(database, "new");
+
+    await expect(
+      commitPipelineArticleRewrite(database, {
+        batchId: "top5-single-batch",
+        articleId: article.id,
+        rewrittenText: "單一標題\n\n第一句完整正文。第二句完整正文。",
+        status: "rewritten",
+        precondition: article,
+        relatedArticleIds: [],
+        requestedByUserId: "emp-1",
+        requestedModel: "grok-4.5",
+        outputLanguage: "traditional_chinese",
+        requestedLengthOption: "more_detailed",
+        relatedReportCount: 1,
+        validationStatus: "passed",
+        attempts: 1,
+      }),
+    ).resolves.toMatchObject({ committed: true, mergedCount: 0 });
   });
 
   it("inserts pipeline articles once by URL and tracks status transitions", async () => {
@@ -222,6 +516,53 @@ describe("feeds repository", () => {
       publishedAt: expect.any(Number),
     });
     expect((await listPublicArticles(database))[0]?.id).toBe(article.id);
+  });
+
+  it("does not let a stale concurrent rewrite overwrite the first result", async () => {
+    database = await setup();
+    const feed = await createFeed(
+      database,
+      { name: "World News", url: "https://feeds.example/world.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(database, feed.id, [
+      {
+        title: "Concurrent source",
+        url: "https://example.com/concurrent-source",
+        description: "Source preview.",
+        author: null,
+        pubDate: 1_700_000_000,
+      },
+    ]);
+    const article = (await listPipelineArticles(database))[0];
+    const precondition = {
+      status: article.status,
+      updatedAt: article.updatedAt,
+      rewrittenText: article.rewrittenText,
+    };
+
+    await expect(
+      setPipelineArticleRewritten(
+        database,
+        article.id,
+        "First completed rewrite.",
+        "rewritten",
+        precondition,
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      setPipelineArticleRewritten(
+        database,
+        article.id,
+        "Stale rewrite that must not win.",
+        "rewritten",
+        precondition,
+      ),
+    ).resolves.toBe(false);
+    expect(await getPipelineArticleById(database, article.id)).toMatchObject({
+      status: "rewritten",
+      rewrittenText: "First completed rewrite.",
+    });
   });
 
   it("exposes only approved articles with rewritten text on the public site", async () => {
@@ -379,7 +720,7 @@ describe("feeds repository", () => {
     ]);
 
     const rankedStories = await listPopularPipelineStories(database);
-    expect(rankedStories.some((story) => story.title.includes("Promo code"))).toBe(false);
+    expect(rankedStories.some((story) => story.title.includes("Promo code"))).toBe(true);
     const [topStory] = rankedStories;
     expect(topStory).toMatchObject({
       sourceCount: 3,
@@ -399,6 +740,73 @@ describe("feeds repository", () => {
     expect(await listPopularPipelineStories(database)).toEqual([
       expect.objectContaining({ title: "Typhoon warning issued for the weekend", reportCount: 1 }),
       expect.objectContaining({ title: "OpenAI unveils GPT-5 AI model", reportCount: 1 }),
+      expect.objectContaining({
+        title: "Promo code story that has no saved scraper text",
+        reportCount: 1,
+      }),
+    ]);
+  }, 15_000);
+
+  it("fills the Top 5 with feed-only stories after saved full-text stories", async () => {
+    database = await setup();
+    await importScrapedArticles(
+      database,
+      [
+        {
+          source: "saved-a",
+          title: "Quantum battery factory opens in Hong Kong",
+          url: "https://saved-a.example/quantum-battery",
+          author: null,
+          publishedAt: "2026-08-01T06:00:00Z",
+          contentText: "Complete quantum battery report.",
+          imageUrl: null,
+        },
+        {
+          source: "saved-b",
+          title: "Typhoon warning changes weekend transport plans",
+          url: "https://saved-b.example/typhoon-transport",
+          author: null,
+          publishedAt: "2026-08-01T07:00:00Z",
+          contentText: "Complete typhoon transport report.",
+          imageUrl: null,
+        },
+      ],
+      "emp-1",
+    );
+
+    const feed = await createFeed(
+      database,
+      { name: "Automatic feed candidates", url: "https://feeds.example/automatic.xml" },
+      "emp-1",
+    );
+    await insertPipelineArticles(
+      database,
+      feed.id,
+      [
+        "Mars rover returns new crater images",
+        "Laptop maker announces repair programme",
+        "Satellite operator expands weather service",
+        "Researchers unveil low-power display",
+      ].map((title, index) => ({
+        title,
+        url: `https://feed-only.example/story-${index}`,
+        description: `Feed preview ${index}.`,
+        author: null,
+        pubDate: 1_786_000_000 + index,
+      })),
+    );
+
+    const stories = await listPopularPipelineStories(database);
+
+    expect(stories).toHaveLength(5);
+    expect(stories.slice(0, 2).map((story) => story.title)).toEqual([
+      "Typhoon warning changes weekend transport plans",
+      "Quantum battery factory opens in Hong Kong",
+    ]);
+    expect(stories.slice(2).map((story) => story.title)).toEqual([
+      "Researchers unveil low-power display",
+      "Satellite operator expands weather service",
+      "Laptop maker announces repair programme",
     ]);
   }, 15_000);
 });
@@ -427,6 +835,7 @@ describe("feed pipeline ingestion", () => {
       "0008_pipeline_article_merges.sql",
       "0010_pipeline_article_publication.sql",
       "0011_pipeline_article_categories.sql",
+      "0012_pipeline_rewrite_debug_logs.sql",
     ]) {
       const sql = await readFile(new URL(`../migrations/${migration}`, import.meta.url), "utf8");
       await executeSqlScript(db, sql);

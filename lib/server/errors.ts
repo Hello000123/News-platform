@@ -11,6 +11,7 @@ export interface PublicErrorDetails {
   quotationIssues?: QuotationIssue[];
   candidateText?: string;
   attempts?: number;
+  debugId?: string;
 }
 
 interface AppErrorOptions extends ErrorOptions {

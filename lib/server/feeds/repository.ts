@@ -2,8 +2,9 @@ import type { D1Database } from "@cloudflare/workers-types";
 
 import { createId, nowInSeconds } from "@/lib/server/auth/crypto";
 import { AppError } from "@/lib/server/errors";
-import { selectPopularPipelineStories } from "@/lib/server/feeds/popularity";
+import { rankPopularPipelineStories } from "@/lib/server/feeds/popularity";
 import type { FeedItem } from "@/lib/server/feeds/rss-parser";
+import type { RewriteLengthOption, RewriteOutputLanguage } from "@/lib/shared/contracts";
 import type {
   FeedInput,
   FeedStatus,
@@ -16,6 +17,7 @@ import type {
   PopularPipelineStory,
   ScrapedArticleInput,
 } from "@/lib/shared/feeds-contracts";
+import type { SelectableModelId } from "@/lib/shared/models";
 
 interface FeedRow {
   id: string;
@@ -47,6 +49,35 @@ interface PipelineArticleRow {
   published_at: number | null;
   created_at: number;
   updated_at: number;
+}
+
+interface PipelineRewriteCommitRow {
+  batch_id: string;
+  article_id: string;
+  requested_by_user_id: string;
+  requested_model: SelectableModelId;
+  output_language: RewriteOutputLanguage;
+  requested_length_option: RewriteLengthOption | null;
+  related_report_count: number;
+  validation_status: "passed" | "passed_after_retry";
+  attempts: 1 | 2 | 3;
+  created_at: number;
+}
+
+interface PipelineRewriteCommitInput {
+  batchId?: string | null;
+  articleId: string;
+  rewrittenText: string;
+  status: "rewritten" | "approved";
+  precondition: Pick<PipelineArticleView, "status" | "updatedAt" | "rewrittenText">;
+  relatedArticleIds: readonly string[];
+  requestedByUserId: string;
+  requestedModel: SelectableModelId;
+  outputLanguage: RewriteOutputLanguage;
+  requestedLengthOption: RewriteLengthOption | null;
+  relatedReportCount: number;
+  validationStatus: "passed" | "passed_after_retry";
+  attempts: 1 | 2 | 3;
 }
 
 function mapFeed(row: FeedRow): FeedView {
@@ -313,6 +344,38 @@ export async function getPipelineArticleById(database: D1Database, id: string) {
   return row ? mapArticle(row) : null;
 }
 
+export async function getPipelineRewriteCommit(
+  database: D1Database,
+  input: { batchId: string; articleId: string; requestedByUserId: string },
+) {
+  const row = await database
+    .prepare(
+      `SELECT
+         batch_id, article_id, requested_by_user_id, requested_model,
+         output_language, requested_length_option, related_report_count,
+         validation_status, attempts, created_at
+       FROM pipeline_rewrite_commits
+       WHERE batch_id = ? AND article_id = ? AND requested_by_user_id = ?
+       LIMIT 1`,
+    )
+    .bind(input.batchId, input.articleId, input.requestedByUserId)
+    .first<PipelineRewriteCommitRow>();
+  return row
+    ? {
+        batchId: row.batch_id,
+        articleId: row.article_id,
+        requestedByUserId: row.requested_by_user_id,
+        requestedModel: row.requested_model,
+        outputLanguage: row.output_language,
+        requestedLengthOption: row.requested_length_option,
+        relatedReportCount: row.related_report_count,
+        validationStatus: row.validation_status,
+        attempts: row.attempts,
+        createdAt: row.created_at,
+      }
+    : null;
+}
+
 export async function getPipelineArticlesByIds(
   database: D1Database,
   articleIds: readonly string[],
@@ -498,21 +561,49 @@ export async function listPopularPipelineStories(
   database: D1Database,
   limit = 5,
 ): Promise<PopularPipelineStory[]> {
-  // The one-click batch is intentionally limited to reports with the text
-  // captured by the scraper. RSS-only entries often contain only a teaser and
-  // can point to pages that are too large or blocked for a second fetch.
-  const result = await database
-    .prepare(
-      `${ARTICLE_SELECT}
-       WHERE article.status = 'new'
-         AND article.merged_into_article_id IS NULL
-         AND article.source_text IS NOT NULL
-         AND length(trim(article.source_text)) > 0
-       ORDER BY article.created_at DESC
-       LIMIT 200`,
-    )
-    .all<PipelineArticleRow>();
-  return selectPopularPipelineStories(result.results.map(mapArticle), limit);
+  // Prefer reports whose full text was captured by the scraper. If fewer than
+  // five source-backed clusters remain, include feed-only reports; the rewrite
+  // route retrieves those article pages on demand before calling the model.
+  // Keep separate candidate budgets. A large scraper backlog must not crowd
+  // every feed-only report out before clustering has reduced it to stories.
+  const [sourceBackedResult, feedOnlyResult] = await Promise.all([
+    database
+      .prepare(
+        `${ARTICLE_SELECT}
+         WHERE article.status = 'new'
+           AND article.merged_into_article_id IS NULL
+           AND article.source_text IS NOT NULL
+           AND length(trim(article.source_text)) > 0
+         ORDER BY article.created_at DESC
+         LIMIT 200`,
+      )
+      .all<PipelineArticleRow>(),
+    database
+      .prepare(
+        `${ARTICLE_SELECT}
+         WHERE article.status = 'new'
+           AND article.merged_into_article_id IS NULL
+           AND (article.source_text IS NULL OR length(trim(article.source_text)) = 0)
+         ORDER BY article.created_at DESC
+         LIMIT 200`,
+      )
+      .all<PipelineArticleRow>(),
+  ]);
+  const articles = [...sourceBackedResult.results, ...feedOnlyResult.results].map(mapArticle);
+  const sourceBackedIds = new Set(
+    articles
+      .filter((article) => article.sourceText?.trim())
+      .map((article) => article.id),
+  );
+  const rankedStories = rankPopularPipelineStories(articles);
+  const sourceBackedStories = rankedStories.filter((story) =>
+    story.relatedArticleIds.some((articleId) => sourceBackedIds.has(articleId)),
+  );
+  const feedOnlyStories = rankedStories.filter((story) =>
+    story.relatedArticleIds.every((articleId) => !sourceBackedIds.has(articleId)),
+  );
+  const safeLimit = Math.max(0, Math.min(Math.floor(limit), 5));
+  return [...sourceBackedStories, ...feedOnlyStories].slice(0, safeLimit);
 }
 
 export async function markPipelineArticlesMerged(
@@ -539,6 +630,114 @@ export async function markPipelineArticlesMerged(
     ),
   );
   return results.reduce((count, result) => count + result.meta.changes, 0);
+}
+
+/**
+ * Atomically records the idempotency key, saves the canonical rewrite, and
+ * merges every still-eligible duplicate. If any selected duplicate changed
+ * while the model was running, no part of the commit is applied.
+ */
+export async function commitPipelineArticleRewrite(
+  database: D1Database,
+  input: PipelineRewriteCommitInput,
+) {
+  const relatedIds = [...new Set(input.relatedArticleIds)].filter(
+    (id) => id && id !== input.articleId,
+  );
+  const relatedPlaceholders = relatedIds.map(() => "?").join(", ");
+  const relatedEligibility = relatedIds.length
+    ? `AND (
+         SELECT COUNT(*)
+         FROM pipeline_articles AS related
+         WHERE related.id IN (${relatedPlaceholders})
+           AND related.status = 'new'
+           AND related.merged_into_article_id IS NULL
+       ) = ?`
+    : "";
+  const commitId = createId();
+  const batchId = input.batchId ?? `single:${createId()}`;
+  const now = nowInSeconds();
+  const insertCommit = database
+    .prepare(
+      `INSERT INTO pipeline_rewrite_commits (
+         id, batch_id, article_id, requested_by_user_id, requested_model,
+         output_language, requested_length_option, related_report_count,
+         validation_status, attempts, created_at
+       )
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1
+         FROM pipeline_articles AS canonical
+         WHERE canonical.id = ?
+           AND canonical.merged_into_article_id IS NULL
+           AND canonical.status = ?
+           AND canonical.updated_at = ?
+           AND canonical.rewritten_text IS ?
+           ${relatedEligibility}
+       )
+       ON CONFLICT(batch_id, article_id, requested_by_user_id) DO NOTHING`,
+    )
+    .bind(
+      commitId,
+      batchId,
+      input.articleId,
+      input.requestedByUserId,
+      input.requestedModel,
+      input.outputLanguage,
+      input.requestedLengthOption,
+      input.relatedReportCount,
+      input.validationStatus,
+      input.attempts,
+      now,
+      input.articleId,
+      input.precondition.status,
+      input.precondition.updatedAt,
+      input.precondition.rewrittenText,
+      ...(relatedIds.length > 0 ? [...relatedIds, relatedIds.length] : []),
+    );
+  const updateCanonical = database
+    .prepare(
+      `UPDATE pipeline_articles
+       SET status = ?,
+           rewritten_text = ?,
+           published_at = CASE
+             WHEN ? = 'approved' AND status != 'approved' THEN ?
+             ELSE published_at
+           END,
+           updated_at = ?
+       WHERE id = ?
+         AND EXISTS (SELECT 1 FROM pipeline_rewrite_commits WHERE id = ?)`,
+    )
+    .bind(
+      input.status,
+      input.rewrittenText,
+      input.status,
+      now,
+      now,
+      input.articleId,
+      commitId,
+    );
+  const statements = [insertCommit, updateCanonical];
+  if (relatedIds.length > 0) {
+    statements.push(
+      database
+        .prepare(
+          `UPDATE pipeline_articles
+           SET merged_into_article_id = ?, updated_at = ?
+           WHERE id IN (${relatedPlaceholders})
+             AND status = 'new'
+             AND merged_into_article_id IS NULL
+             AND EXISTS (SELECT 1 FROM pipeline_rewrite_commits WHERE id = ?)`,
+        )
+        .bind(input.articleId, now, ...relatedIds, commitId),
+    );
+  }
+  const results = await database.batch(statements);
+  return {
+    committed: (results[1]?.meta.changes ?? 0) === 1,
+    mergedCount: results[2]?.meta.changes ?? 0,
+    batchId,
+  };
 }
 
 export async function updatePipelineArticleStatus(
@@ -616,8 +815,19 @@ export async function setPipelineArticleRewritten(
   articleId: string,
   rewrittenText: string,
   status: "rewritten" | "approved" = "rewritten",
+  precondition?: Pick<PipelineArticleView, "status" | "updatedAt" | "rewrittenText">,
 ) {
   const now = nowInSeconds();
+  const where = precondition
+    ? `id = ?
+         AND merged_into_article_id IS NULL
+         AND status = ?
+         AND updated_at = ?
+         AND rewritten_text IS ?`
+    : "id = ? AND merged_into_article_id IS NULL";
+  const whereValues = precondition
+    ? [articleId, precondition.status, precondition.updatedAt, precondition.rewrittenText]
+    : [articleId];
   const result = await database
     .prepare(
       `UPDATE pipeline_articles
@@ -628,9 +838,9 @@ export async function setPipelineArticleRewritten(
              ELSE published_at
            END,
            updated_at = ?
-       WHERE id = ? AND merged_into_article_id IS NULL`,
+       WHERE ${where}`,
     )
-    .bind(status, rewrittenText, status, now, now, articleId)
+    .bind(status, rewrittenText, status, now, now, ...whereValues)
     .run();
   return result.meta.changes > 0;
 }

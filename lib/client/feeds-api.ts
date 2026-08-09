@@ -21,6 +21,8 @@ export class FeedRequestError extends Error {
     message: string,
     public readonly fieldErrors?: Record<string, string[]>,
     public readonly status?: number,
+    public readonly debugId?: string,
+    public readonly retryable?: boolean,
   ) {
     super(message);
     this.name = "FeedRequestError";
@@ -32,6 +34,8 @@ interface ErrorBody {
     code?: string;
     message?: string;
     fieldErrors?: Record<string, string[]>;
+    debugId?: string;
+    retryable?: boolean;
   };
 }
 
@@ -65,6 +69,8 @@ async function requestJson<T>(endpoint: string, init: RequestInit): Promise<T> {
       error?.message || "The request failed. Please try again.",
       error?.fieldErrors,
       response.status,
+      error?.debugId,
+      error?.retryable,
     );
   }
   return body as T;
@@ -224,7 +230,7 @@ export function rewritePipelineArticle(id: string, input: PipelineRewriteInput =
   return postJson<{
     article: PipelineArticleView;
     finalText: string;
-    validation: { status: "passed" | "passed_after_retry"; attempts: 1 | 2 };
+    validation: { status: "passed" | "passed_after_retry"; attempts: 1 | 2 | 3 };
   }>(
     `/api/pipeline/articles/${encodeURIComponent(id)}/rewrite`,
     input,
