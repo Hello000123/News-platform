@@ -20,7 +20,7 @@
 ## States and Behaviors
 - Headline and image are one navigational destination with independent, visible focus treatment.
 - Images reserve their aspect ratio to avoid layout shift and lazy-load except for the lead.
-- Hover applies only a subtle gold underline and grayscale contrast change over `200ms`.
+- Hover applies only a subtle gold underline over `200ms`; image colour remains intact.
 
 ## Responsive Behavior
 - Desktop: two columns followed by a full-width supporting-story rail.

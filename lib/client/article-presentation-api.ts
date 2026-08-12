@@ -1,5 +1,6 @@
 import { csrfHeaders } from "@/lib/client/auth-api";
 import type { ArticlePresentation } from "@/lib/shared/article-presentation";
+import type { PublicPagePresentationKey } from "@/lib/shared/public-page-presentation";
 
 export class ArticlePresentationRequestError extends Error {
   constructor(
@@ -52,6 +53,45 @@ export async function updateArticlePresentation(
     throw new ArticlePresentationRequestError(
       error?.code ?? "ARTICLE_PRESENTATION_UPDATE_FAILED",
       error?.message ?? "The article presentation could not be saved.",
+      response.status,
+    );
+  }
+  return body as ArticlePresentationUpdateResponse;
+}
+
+export async function updatePublicPagePresentation(
+  pageKey: PublicPagePresentationKey,
+  action: "save" | "publish",
+  presentation: ArticlePresentation,
+) {
+  const response = await fetch(
+    `/api/employee/public-pages/${encodeURIComponent(pageKey)}/presentation`,
+    {
+      method: "PATCH",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify({ action, presentation }),
+    },
+  );
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new ArticlePresentationRequestError(
+      "INVALID_SERVER_RESPONSE",
+      "The server returned an unreadable response.",
+      response.status,
+    );
+  }
+  if (!response.ok) {
+    const error = (body as { error?: { code?: string; message?: string } }).error;
+    throw new ArticlePresentationRequestError(
+      error?.code ?? "PUBLIC_PAGE_PRESENTATION_UPDATE_FAILED",
+      error?.message ?? "The public-page presentation could not be saved.",
       response.status,
     );
   }

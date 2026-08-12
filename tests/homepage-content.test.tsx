@@ -8,10 +8,10 @@ import {
   buildHomepageView,
   extractArticleKeyPoints,
   extractArticleSummary,
+  homepagePresentationSource,
   NewsHomepage,
   placeholderImageUrl,
 } from "@/components/news/homepage-content";
-import { articlePresentationSourceBlocks } from "@/components/news/article-content";
 import {
   createDefaultArticlePresentation,
   replaceArticleText,
@@ -76,7 +76,6 @@ describe("PressReady homepage view model", () => {
       ["article-0", "article-2", "article-4"],
       ["article-1", "article-3", "article-5"],
     ]);
-    expect(view.topics).toEqual(["World Desk", "Culture Desk"]);
   });
 
   it("uses categorized prototype stories only to keep sparse homepage modules present", () => {
@@ -98,7 +97,6 @@ describe("PressReady homepage view model", () => {
       "social-enterprise",
     ]);
     expect(empty.latest).toHaveLength(15);
-    expect(empty.topics).toEqual(["生成式 AI", "數碼共融", "社區創新", "影響力營運"]);
   });
 
   it("prefers descriptions, falls back to body text, and extracts only body points", () => {
@@ -125,9 +123,9 @@ describe("PressReady homepage view model", () => {
     expect(extractArticleKeyPoints(withoutBody)).toEqual([]);
   });
 
-  it("creates stable grayscale placeholder URLs from article IDs", () => {
+  it("creates stable full-colour placeholder URLs from article IDs", () => {
     const first = placeholderImageUrl("article/one", 1200, 800);
-    expect(first).toBe("https://picsum.photos/seed/pressready-article%2Fone/1200/800.webp?grayscale");
+    expect(first).toBe("https://picsum.photos/seed/pressready-article%2Fone/1200/800.webp");
     expect(placeholderImageUrl("article/one", 1200, 800)).toBe(first);
     expect(placeholderImageUrl("article/two", 1200, 800)).not.toBe(first);
   });
@@ -194,11 +192,15 @@ describe("NewsHomepage rendering", () => {
   it("renders the lead article's published presentation and offers employee front-page editing", () => {
     const leadArticle = article(0);
     const view = buildHomepageView([leadArticle]);
+    const source = homepagePresentationSource(view);
     const initial = createDefaultArticlePresentation(
-      leadArticle.updatedAt,
-      articlePresentationSourceBlocks(leadArticle),
+      source.sourceUpdatedAt,
+      source.sourceBlocks,
+      source.sourceImageIds,
     );
-    const published = replaceArticleText(initial, "title", 0, 5, "Front-page");
+    const leadTitleBlock = source.sourceBlocks.find(({ id }) => id.includes(":lead:") && id.endsWith(":title"));
+    expect(leadTitleBlock).toBeTruthy();
+    const published = replaceArticleText(initial, leadTitleBlock!.id, 0, 5, "Front-page");
 
     const { container } = render(
       <NewsHomepage
@@ -209,7 +211,7 @@ describe("NewsHomepage rendering", () => {
       />,
     );
 
-    expect(screen.getByRole("link", { name: "Edit front page lead" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Edit front page" }).getAttribute("href")).toBe(
       "/?edit=1",
     );
     expect(screen.getByRole("heading", { level: 1, name: /Front-page 0 headline/u })).toBeTruthy();
@@ -219,9 +221,11 @@ describe("NewsHomepage rendering", () => {
   it("opens the same restricted Home ribbon directly on the front page", () => {
     const leadArticle = article(0);
     const view = buildHomepageView([leadArticle]);
+    const source = homepagePresentationSource(view);
     const presentation = createDefaultArticlePresentation(
-      leadArticle.updatedAt,
-      articlePresentationSourceBlocks(leadArticle),
+      source.sourceUpdatedAt,
+      source.sourceBlocks,
+      source.sourceImageIds,
     );
 
     render(
@@ -235,7 +239,17 @@ describe("NewsHomepage rendering", () => {
     );
 
     expect(screen.getByRole("toolbar", { name: "Home text formatting ribbon" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Editable title" })).toBeTruthy();
+    const editableBlocks = screen.getAllByRole("textbox", { name: /Editable/u });
+    expect(editableBlocks.length).toBeGreaterThan(8);
+    expect(
+      editableBlocks.some((element) => element.getAttribute("aria-label")?.includes("related")),
+    ).toBe(true);
+    expect(
+      editableBlocks.some((element) => element.getAttribute("aria-label")?.includes("latest")),
+    ).toBe(true);
+    expect(
+      editableBlocks.some((element) => element.getAttribute("aria-label")?.includes("key")),
+    ).toBe(true);
     expect(screen.getByRole("heading", { level: 1 }).querySelector("a")).toBeNull();
     expect(screen.getByRole("link", { name: "Exit editing" }).getAttribute("href")).toBe("/");
   });

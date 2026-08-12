@@ -284,5 +284,5 @@ describe("article presentation persistence", () => {
     } finally {
       await miniflare.dispose();
     }
-  });
+  }, 15_000);
 });

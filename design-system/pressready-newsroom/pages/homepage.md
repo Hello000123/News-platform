@@ -13,7 +13,7 @@
 
 - Preserve paper `#f5f2ea`, ink `#1a1a1a`, muted `#817d74`, gold `#b49a5a`, existing serif/sans stacks, square geometry, and fine rules.
 - Keep lead headlines prominent without constraining Traditional Chinese to an unnaturally narrow measure.
-- Use grayscale editorial placeholders while leaving editor-uploaded photos legible.
+- Use full-colour editorial placeholders and preserve editor-uploaded photo colour.
 - The unwire.hk reference informs hierarchy, archive rhythm, and responsive stacking only.
 
 ## Interaction and accessibility

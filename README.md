@@ -172,19 +172,27 @@ duplicate. Imported source
 feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
 fetch their placeholder URLs.
 
-Employees can open any live article and choose **Edit presentation**, or edit the
-lead story directly from the public front page. Draft and published versions are
-stored separately. The Word-style Home ribbon supports direct plain-text editing,
-undo and redo, allowlisted fonts and sizes, case changes, bold, italic, underline,
-strikethrough, subscript, superscript, highlight colour, and font colour. Images
-can be resized within their existing container with a drag handle; free dragging
-may change the aspect ratio and holding Ctrl preserves the source image ratio.
+Employees can open any live article and choose **Edit presentation**, or open the
+page-wide editor from the homepage, `/technology`, or `/social-enterprise`. The
+public-page editor covers each story headline, deck, key point, related-story
+headline, latest-note headline, and existing story image while keeping mastheads,
+categories, navigation, and layout fixed. Category descriptions and their honest
+empty-state copy remain editable even before the first report is published. Draft
+and published versions are stored
+separately. The Word-style Home ribbon supports direct plain-text editing, undo and
+redo, allowlisted fonts and sizes, case changes, bold, italic, underline,
+strikethrough, subscript, superscript, highlight colour, and font colour. Colour
+values may be entered as `#RRGGBB` or `rgb(R, G, B)`. Images can be resized with a
+typed percentage or drag handle inside their existing container; free dragging may
+change the aspect ratio and holding Ctrl preserves the source image ratio.
 Article blocks remain fixed: they cannot be added, removed, moved, or reordered,
 and navigation, columns, margins, header, and footer never enter the saved model.
 The server accepts plain text only, validates all style values and image bounds,
-and rejects empty or structurally changed blocks. **Save Changes** keeps a private
-draft and **Publish** promotes the validated version through the existing
-`approved` publication state.
+and rejects empty or structurally changed blocks. **Discard Change** asks for
+confirmation and restores the last saved draft, **Save Changes** keeps a private
+draft, and **Publish** promotes the validated version through the existing
+publication workflow. Migration `0019_public_page_presentations.sql` adds the
+separate draft and published records for the three editable public pages.
 
 Employees can open a client name from the **Client Accounts** tab to view a
 dedicated client profile, a server-paginated list of verified published news,

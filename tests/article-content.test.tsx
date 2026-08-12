@@ -106,9 +106,9 @@ describe("public article content helpers", () => {
     expect(ranked.map(({ id }) => id)).toEqual(["article-4", "article-2", "article-1"]);
   });
 
-  it("keeps deterministic grayscale image URLs", () => {
+  it("keeps deterministic full-colour image URLs", () => {
     expect(placeholderImageUrl("article/one", 1200, 675)).toBe(
-      "https://picsum.photos/seed/pressready-article%2Fone/1200/675.webp?grayscale",
+      "https://picsum.photos/seed/pressready-article%2Fone/1200/675.webp",
     );
   });
 });

@@ -19,6 +19,7 @@ import {
 import {
   ArticlePresentationRequestError,
   updateArticlePresentation,
+  updatePublicPagePresentation,
 } from "@/lib/client/article-presentation-api";
 import {
   applyArticleTextStyle,
@@ -31,14 +32,17 @@ import {
   ARTICLE_PRESENTATION_FONT_SIZES,
   articlePresentationBlockText,
   articlePresentationFingerprint,
+  articlePresentationImageGeometry,
   articlePresentationSelectionStyle,
   replaceArticleText,
+  setArticlePresentationImageGeometry,
   type ArticlePresentation,
   type ArticlePresentationFontFamily,
   type ArticlePresentationFontSize,
   type ArticlePresentationSegment,
   type ArticlePresentationStylePatch,
 } from "@/lib/shared/article-presentation";
+import type { PublicPagePresentationKey } from "@/lib/shared/public-page-presentation";
 
 type TextSelection = {
   kind: "text";
@@ -48,7 +52,7 @@ type TextSelection = {
   baseFontSize: number | null;
 };
 
-type EditorSelection = TextSelection | { kind: "image" } | null;
+type EditorSelection = TextSelection | { kind: "image"; imageId: string } | null;
 type SelectionOffsets = { start: number; end: number };
 type ChangeCaseMode = "sentence" | "lower" | "upper" | "capitalize" | "toggle";
 
@@ -68,10 +72,14 @@ interface ArticlePresentationEditorContextValue {
     end: number,
     replacement: string,
   ) => void;
-  selectImage: () => void;
+  selectImage: (imageId: string) => void;
   applyStyle: (patch: ArticlePresentationStylePatch) => void;
   resizeImage: (direction: -1 | 1) => void;
-  previewImageGeometry: (widthPercent: number, aspectRatio: number) => void;
+  previewImageGeometry: (
+    imageId: string,
+    widthPercent: number,
+    aspectRatio: number,
+  ) => void;
   commitImageGeometry: () => void;
 }
 
@@ -255,6 +263,20 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function parseEditorColor(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/u.test(normalized)) return normalized;
+  const rgb = normalized.match(
+    /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/u,
+  );
+  if (!rgb) return null;
+  const channels = rgb.slice(1).map(Number);
+  if (channels.some((channel) => channel < 0 || channel > 255)) return null;
+  return `#${channels
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
 function RibbonButton({
   label,
   title,
@@ -288,6 +310,7 @@ function RibbonButton({
 
 export function ArticlePresentationEditorProvider({
   articleId,
+  publicPageKey,
   editMode,
   initialDraft,
   initialPublished,
@@ -295,7 +318,8 @@ export function ArticlePresentationEditorProvider({
   editorLabel = "article",
   children,
 }: {
-  articleId: string;
+  articleId?: string;
+  publicPageKey?: PublicPagePresentationKey;
   editMode: boolean;
   initialDraft: ArticlePresentation;
   initialPublished: ArticlePresentation;
@@ -344,6 +368,10 @@ export function ArticlePresentationEditorProvider({
     [presentation, textSelection],
   );
   const { canUndo, canRedo } = historyControls;
+  const selectedImageId = selection?.kind === "image" ? selection.imageId : null;
+  const selectedImageGeometry = selectedImageId
+    ? articlePresentationImageGeometry(presentation, selectedImageId)
+    : null;
 
   const setWithoutHistory = useCallback((next: ArticlePresentation) => {
     presentationRef.current = next;
@@ -538,6 +566,25 @@ export function ArticlePresentationEditorProvider({
     }
   }
 
+  function applyColorInput(
+    value: string,
+    field: "highlightColor" | "fontColor",
+  ) {
+    const color = parseEditorColor(value);
+    if (!color) {
+      setErrorMessage(
+        "Enter a HEX colour such as #245b88 or an RGB colour such as rgb(36, 91, 136).",
+      );
+      return;
+    }
+    setErrorMessage("");
+    applyStyle(
+      field === "highlightColor"
+        ? { highlightColor: color }
+        : { fontColor: color },
+    );
+  }
+
   function adjustFontSize(direction: -1 | 1) {
     if (!textSelection || !hasTextRange) return;
     const current =
@@ -583,23 +630,55 @@ export function ArticlePresentationEditorProvider({
   function resizeImage(direction: -1 | 1) {
     if (selection?.kind !== "image") return;
     const current = presentationRef.current;
-    const next = {
-      ...current,
-      imageScalePercent: clamp(
-        current.imageScalePercent + direction * ARTICLE_IMAGE_SCALE_STEP,
-        ARTICLE_IMAGE_MIN_SCALE_PERCENT,
-        ARTICLE_IMAGE_MAX_SCALE_PERCENT,
-      ),
-    };
+    const geometry = articlePresentationImageGeometry(
+      current,
+      selection.imageId,
+    );
+    const next = setArticlePresentationImageGeometry(
+      current,
+      selection.imageId,
+      {
+        ...geometry,
+        imageScalePercent: clamp(
+          geometry.imageScalePercent + direction * ARTICLE_IMAGE_SCALE_STEP,
+          ARTICLE_IMAGE_MIN_SCALE_PERCENT,
+          ARTICLE_IMAGE_MAX_SCALE_PERCENT,
+        ),
+      },
+    );
     if (recordPresentation(next)) {
       setErrorMessage("");
       setStatus("Image width changed. Save or publish when ready.");
     }
   }
 
-  function previewImageGeometry(widthPercent: number, aspectRatio: number) {
-    setWithoutHistory({
-      ...presentationRef.current,
+  function setImageScalePercent(imageId: string, requestedValue: number) {
+    if (!Number.isFinite(requestedValue)) return;
+    const current = presentationRef.current;
+    const geometry = articlePresentationImageGeometry(current, imageId);
+    const next = setArticlePresentationImageGeometry(current, imageId, {
+      ...geometry,
+      imageScalePercent: Math.round(
+        clamp(
+          requestedValue,
+          ARTICLE_IMAGE_MIN_SCALE_PERCENT,
+          ARTICLE_IMAGE_MAX_SCALE_PERCENT,
+        ),
+      ),
+    });
+    if (recordPresentation(next)) {
+      setErrorMessage("");
+      setStatus("Image width changed. Save or publish when ready.");
+    }
+  }
+
+  function previewImageGeometry(
+    imageId: string,
+    widthPercent: number,
+    aspectRatio: number,
+  ) {
+    const current = presentationRef.current;
+    const next = setArticlePresentationImageGeometry(current, imageId, {
       imageScalePercent: Math.round(
         clamp(
           widthPercent,
@@ -615,6 +694,7 @@ export function ArticlePresentationEditorProvider({
         ).toFixed(3),
       ),
     });
+    setWithoutHistory(next);
   }
 
   function commitImageGeometry() {
@@ -634,26 +714,50 @@ export function ArticlePresentationEditorProvider({
     }
   }
 
+  function discardChanges() {
+    if (!dirty || busyAction) return;
+    if (
+      !window.confirm(
+        "Discard all changes made since the last save? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setWithoutHistory(savedPresentation);
+    historyRef.current = [savedPresentation];
+    historyIndexRef.current = 0;
+    setHistoryControls({ canUndo: false, canRedo: false });
+    setSelection(null);
+    setErrorMessage("");
+    setStatus("Unsaved changes discarded.");
+  }
+
   async function persist(action: "save" | "publish") {
     if (busyAction || (action === "save" && !dirty)) return;
     setBusyAction(action);
     setErrorMessage("");
     setStatus("");
     try {
-      const result = await updateArticlePresentation(
-        articleId,
-        action,
-        presentationRef.current,
-      );
+      const result = publicPageKey
+        ? await updatePublicPagePresentation(
+            publicPageKey,
+            action,
+            presentationRef.current,
+          )
+        : await updateArticlePresentation(
+            articleId ?? "",
+            action,
+            presentationRef.current,
+          );
       setWithoutHistory(result.presentation);
       historyRef.current[historyIndexRef.current] = result.presentation;
       setSavedPresentation(result.presentation);
       if (action === "publish") setPublishedPresentation(result.presentation);
       setStatus(
         action === "publish"
-          ? "Presentation published. The saved version is now live."
+          ? `Presentation published. The saved ${editorLabel} is now live.`
           : result.hasUnpublishedChanges
-            ? "Changes saved as a draft. The public article is unchanged."
+            ? `Changes saved as a draft. The live ${editorLabel} is unchanged.`
             : "Changes saved.",
       );
     } catch (error) {
@@ -674,9 +778,9 @@ export function ArticlePresentationEditorProvider({
     captureTextSelection,
     updateBlockText,
     replaceTextSelection,
-    selectImage: () => {
+    selectImage: (imageId) => {
       if (!editMode) return;
-      setSelection({ kind: "image" });
+      setSelection({ kind: "image", imageId });
       setStatus("Image selected. Double-click it to reveal the drag handle.");
     },
     applyStyle,
@@ -688,7 +792,8 @@ export function ArticlePresentationEditorProvider({
   const controlsDisabled = Boolean(busyAction);
   const textControlsDisabled = controlsDisabled || !hasTextRange;
   const imageSelected = selection?.kind === "image";
-  const resolvedExitHref = exitHref ?? `/news/${encodeURIComponent(articleId)}`;
+  const resolvedExitHref =
+    exitHref ?? (articleId ? `/news/${encodeURIComponent(articleId)}` : "/");
 
   return (
     <ArticlePresentationEditorContext.Provider value={context}>
@@ -721,6 +826,14 @@ export function ArticlePresentationEditorProvider({
               <Link className="news-presentation-exit" href={resolvedExitHref}>
                 Exit editing
               </Link>
+              <button
+                className="news-presentation-button news-presentation-button-danger"
+                type="button"
+                disabled={controlsDisabled || !dirty}
+                onClick={discardChanges}
+              >
+                Discard Change
+              </button>
               <button
                 className="news-presentation-button news-presentation-button-secondary"
                 type="button"
@@ -911,6 +1024,21 @@ export function ArticlePresentationEditorProvider({
                         onChange={(event) => applyStyle({ highlightColor: event.target.value })}
                       />
                     </label>
+                    <input
+                      className="news-presentation-color-text"
+                      type="text"
+                      aria-label="Text highlight colour HEX or RGB"
+                      title="Enter #RRGGBB or rgb(R, G, B)"
+                      defaultValue={selectionStyle?.highlightColor ?? "#fff59d"}
+                      key={`highlight-${selectionStyle?.highlightColor ?? "default"}`}
+                      disabled={textControlsDisabled}
+                      onBlur={(event) =>
+                        applyColorInput(event.target.value, "highlightColor")
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
                     <button
                       type="button"
                       aria-label="Remove text highlight"
@@ -933,6 +1061,21 @@ export function ArticlePresentationEditorProvider({
                         onChange={(event) => applyStyle({ fontColor: event.target.value })}
                       />
                     </label>
+                    <input
+                      className="news-presentation-color-text"
+                      type="text"
+                      aria-label="Font colour HEX or RGB"
+                      title="Enter #RRGGBB or rgb(R, G, B)"
+                      defaultValue={selectionStyle?.fontColor ?? "#181713"}
+                      key={`font-${selectionStyle?.fontColor ?? "default"}`}
+                      disabled={textControlsDisabled}
+                      onBlur={(event) =>
+                        applyColorInput(event.target.value, "fontColor")
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
                     <button
                       type="button"
                       aria-label="Use automatic font colour"
@@ -954,18 +1097,44 @@ export function ArticlePresentationEditorProvider({
                     disabled={
                       controlsDisabled ||
                       !imageSelected ||
-                      presentation.imageScalePercent <= ARTICLE_IMAGE_MIN_SCALE_PERCENT
+                      !selectedImageGeometry ||
+                      selectedImageGeometry.imageScalePercent <= ARTICLE_IMAGE_MIN_SCALE_PERCENT
                     }
                     onClick={() => resizeImage(-1)}
                   >−</RibbonButton>
-                  <output aria-live="polite">{presentation.imageScalePercent}%</output>
+                  <label className="news-presentation-image-size-field">
+                    <span className="sr-only">Picture size percentage</span>
+                    <input
+                      type="number"
+                      aria-label="Picture size percentage"
+                      min={ARTICLE_IMAGE_MIN_SCALE_PERCENT}
+                      max={ARTICLE_IMAGE_MAX_SCALE_PERCENT}
+                      step={1}
+                      defaultValue={selectedImageGeometry?.imageScalePercent ?? 100}
+                      key={`${selectedImageId ?? "none"}-${selectedImageGeometry?.imageScalePercent ?? 100}`}
+                      disabled={controlsDisabled || !selectedImageGeometry}
+                      onBlur={(event) => {
+                        if (selectedImageId) {
+                          setImageScalePercent(
+                            selectedImageId,
+                            event.currentTarget.valueAsNumber,
+                          );
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
+                    <span aria-hidden="true">%</span>
+                  </label>
                   <RibbonButton
                     label="Make image larger"
                     title="Make image larger"
                     disabled={
                       controlsDisabled ||
                       !imageSelected ||
-                      presentation.imageScalePercent >= ARTICLE_IMAGE_MAX_SCALE_PERCENT
+                      !selectedImageGeometry ||
+                      selectedImageGeometry.imageScalePercent >= ARTICLE_IMAGE_MAX_SCALE_PERCENT
                     }
                     onClick={() => resizeImage(1)}
                   >+</RibbonButton>
@@ -1138,18 +1307,25 @@ export function ArticlePresentationText({
 }
 
 export function ArticlePresentationImage({
+  imageId = "hero",
   src,
   alt,
   intrinsicWidth = 1200,
   intrinsicHeight = 675,
 }: {
+  imageId?: string;
   src: string;
   alt: string;
   intrinsicWidth?: number;
   intrinsicHeight?: number;
 }) {
   const editor = useArticlePresentationEditor();
-  const selected = editor.selection?.kind === "image";
+  const selected =
+    editor.selection?.kind === "image" && editor.selection.imageId === imageId;
+  const geometry = articlePresentationImageGeometry(
+    editor.presentation,
+    imageId,
+  );
   const [resizeReady, setResizeReady] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const frameRef = useRef<HTMLSpanElement>(null);
@@ -1159,7 +1335,7 @@ export function ArticlePresentationImage({
 
   function enableResize() {
     if (!editor.editMode) return;
-    editor.selectImage();
+    editor.selectImage(imageId);
     setResizeReady(true);
   }
 
@@ -1176,7 +1352,7 @@ export function ArticlePresentationImage({
     if (!frame || !image || !parent) return;
     event.preventDefault();
     event.stopPropagation();
-    editor.selectImage();
+    editor.selectImage(imageId);
 
     const frameRect = frame.getBoundingClientRect();
     const parentRect = parent.getBoundingClientRect();
@@ -1215,7 +1391,11 @@ export function ArticlePresentationImage({
           ARTICLE_IMAGE_MAX_ASPECT_RATIO,
         );
       }
-      editor.previewImageGeometry((width / parentWidth) * 100, aspectRatio);
+      editor.previewImageGeometry(
+        imageId,
+        (width / parentWidth) * 100,
+        aspectRatio,
+      );
     };
     const finish = () => {
       window.removeEventListener("pointermove", move);
@@ -1230,7 +1410,7 @@ export function ArticlePresentationImage({
     window.addEventListener("pointercancel", finish, { once: true });
   }
 
-  const customAspectRatio = editor.presentation.imageAspectRatio;
+  const customAspectRatio = geometry.imageAspectRatio;
   return (
     <span
       ref={frameRef}
@@ -1241,7 +1421,7 @@ export function ArticlePresentationImage({
       }
       data-custom-aspect={customAspectRatio ? "true" : "false"}
       style={{
-        width: `${editor.presentation.imageScalePercent}%`,
+        width: `${geometry.imageScalePercent}%`,
         ...(customAspectRatio ? { aspectRatio: customAspectRatio } : {}),
       }}
       onDoubleClick={enableResize}
@@ -1273,7 +1453,9 @@ export function ArticlePresentationImage({
             ? { width: "100%", height: "100%", objectFit: "fill" }
             : { width: "100%" }
         }
-        onClick={editor.editMode ? editor.selectImage : undefined}
+        onClick={
+          editor.editMode ? () => editor.selectImage(imageId) : undefined
+        }
         onKeyDown={handleImageKeyDown}
       />
       {editor.editMode && selected && resizeReady ? (

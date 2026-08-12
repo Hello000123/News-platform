@@ -67,13 +67,6 @@ export function NewsArticlePageContent({
   const category = article.category
     ? newsCategoryDefinition(article.category)
     : null;
-  const topics = [
-    ...new Set([
-      ...(category ? [category.label] : []),
-      article.feedName,
-      ...related.map(({ feedName }) => feedName),
-    ]),
-  ];
   const defaultPresentation = createDefaultArticlePresentation(
     article.updatedAt,
     articlePresentationSourceBlocks(article),
@@ -87,11 +80,11 @@ export function NewsArticlePageContent({
       <EditorialPublicHeader
         issueDate={formatArticleDate(timestamp)}
         issueLabel="APPROVED REPORT"
-        topics={topics}
       />
 
       <main className="news-v1-article-main" id="news-v1-main">
         <ArticlePresentationEditorProvider
+          key={`${article.id}:${editPresentation ? "edit" : "read"}:${effectivePresentationDraft.sourceUpdatedAt}:${effectivePublishedPresentation.sourceUpdatedAt}`}
           articleId={article.id}
           editMode={editPresentation}
           initialDraft={effectivePresentationDraft}

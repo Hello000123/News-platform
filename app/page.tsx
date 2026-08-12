@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 
 import {
   buildHomepageView,
+  homepagePresentationSource,
   NewsHomepage,
 } from "@/components/news/homepage-content";
-import { getArticlePresentationState } from "@/lib/server/article-presentation";
 import { getDatabase } from "@/lib/server/auth/database";
 import { getOptionalPageSession } from "@/lib/server/auth/guards";
 import { listPublicArticles } from "@/lib/server/feeds/repository";
+import { getPublicPagePresentationState } from "@/lib/server/public-page-presentation";
 import type { ArticlePresentation } from "@/lib/shared/article-presentation";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 
@@ -33,7 +34,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   }
 
   const view = buildHomepageView(articles);
-  const lead = view.lead && !view.lead.isPrototype ? view.lead.article : null;
+  const source = homepagePresentationSource(view);
   let presentationDraft: ArticlePresentation | undefined;
   let publishedPresentation: ArticlePresentation | undefined;
   let canEditPresentation = false;
@@ -41,7 +42,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   try {
     const [session, presentation] = await Promise.all([
       getOptionalPageSession(),
-      lead ? getArticlePresentationState(database, lead) : Promise.resolve(null),
+      getPublicPagePresentationState(database, source),
     ]);
     canEditPresentation = session?.user.role === "employee";
     presentationDraft = presentation?.draft;

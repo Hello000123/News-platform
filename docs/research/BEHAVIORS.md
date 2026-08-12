@@ -27,7 +27,7 @@
 
 - Keep the public header in normal document flow so content is never obscured. Use a native disclosure for the mobile menu, not client-side navigation state.
 - Add 180–220ms color/underline/image-filter feedback to links while respecting `prefers-reduced-motion`.
-- Use the current grayscale editorial imagery and gold accent. User-uploaded color photos remain visible on article pages and receive only the existing public-page treatment.
+- Use full-colour editorial imagery with the existing gold accent. User-uploaded photos remain visible without a grayscale presentation filter.
 - Category links deep-link to `/technology` and `/social-enterprise`; browser back behavior remains native.
 - All image upload controls have visible labels, local preview, file constraints beside the input, busy feedback, and an error adjacent to the control.
 - All interactive targets are at least 44px on mobile and retain the global visible focus ring.

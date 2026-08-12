@@ -4,16 +4,13 @@ import { NEWS_CATEGORIES } from "@/lib/shared/news-categories";
 
 interface EditorialPublicHeaderProps {
   issueDate?: string;
-  topics?: readonly string[];
   issueLabel?: string;
 }
 
 export function EditorialPublicHeader({
   issueDate = "待更新",
-  topics = [],
   issueLabel = "ISSUE 01",
 }: EditorialPublicHeaderProps) {
-  const visibleTopics = topics.filter(Boolean).slice(0, 4);
   const publicLinks = [
     { href: "/", label: "首頁" },
     ...NEWS_CATEGORIES.map(({ href, label }) => ({ href, label })),
@@ -76,20 +73,6 @@ export function EditorialPublicHeader({
           </div>
         </details>
       </div>
-
-      <nav className="news-v1-page-shell news-v1-topic-index" aria-label="新聞分類及主題">
-        <p>NEWS INDEX</p>
-        <ul aria-label="本期關注主題">
-          {NEWS_CATEGORIES.map((category) => (
-            <li className="news-v1-topic-category" key={category.value}>
-              <Link href={category.href}>{category.label}</Link>
-            </li>
-          ))}
-          {(visibleTopics.length > 0 ? visibleTopics : ["等待新報道"]).map((topic) => (
-            <li className="news-v1-topic-label" key={topic}><span>{topic}</span></li>
-          ))}
-        </ul>
-      </nav>
     </header>
   );
 }

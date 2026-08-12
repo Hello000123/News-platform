@@ -46,8 +46,10 @@ const ARTICLE_PRESENTATION_MAX_BLOCKS = 202;
 const ARTICLE_PRESENTATION_MAX_SEGMENTS_PER_BLOCK = 400;
 const ARTICLE_PRESENTATION_MAX_SEGMENTS = 2_000;
 const ARTICLE_PRESENTATION_MAX_TEXT = 60_000;
+const ARTICLE_PRESENTATION_MAX_IMAGES = 120;
 const SAFE_TEXT_CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 const SAFE_TEXT_LINE_BREAKS = /[\r\n\u2028\u2029]/u;
+const SAFE_PRESENTATION_ID = /^[a-z0-9][a-z0-9:_-]{0,159}$/u;
 
 export type ArticlePresentationFontFamily =
   (typeof ARTICLE_PRESENTATION_FONT_FAMILIES)[number];
@@ -59,6 +61,11 @@ export type ArticlePresentationScript =
 export interface ArticlePresentationSourceBlock {
   id: string;
   text: string;
+}
+
+export interface ArticlePresentationImageGeometry {
+  imageScalePercent: number;
+  imageAspectRatio: number | null;
 }
 
 export interface ArticlePresentationStylePatch {
@@ -130,11 +137,27 @@ export const articlePresentationBlockSchema = z
   .object({
     id: z
       .string()
-      .regex(/^(?:title|deck|body:[0-9]{1,3})$/u, "The presentation block is invalid."),
+      .regex(SAFE_PRESENTATION_ID, "The presentation block is invalid."),
     segments: z
       .array(articlePresentationSegmentSchema)
       .min(1)
       .max(ARTICLE_PRESENTATION_MAX_SEGMENTS_PER_BLOCK),
+  })
+  .strict();
+
+export const articlePresentationImageGeometrySchema = z
+  .object({
+    imageScalePercent: z
+      .number()
+      .int()
+      .min(ARTICLE_IMAGE_MIN_SCALE_PERCENT)
+      .max(ARTICLE_IMAGE_MAX_SCALE_PERCENT),
+    imageAspectRatio: z
+      .number()
+      .finite()
+      .min(ARTICLE_IMAGE_MIN_ASPECT_RATIO)
+      .max(ARTICLE_IMAGE_MAX_ASPECT_RATIO)
+      .nullable(),
   })
   .strict();
 
@@ -158,6 +181,16 @@ export const articlePresentationSchema = z
       .max(ARTICLE_IMAGE_MAX_ASPECT_RATIO)
       .nullable()
       .default(null),
+    imageSettings: z
+      .record(
+        z.string().regex(SAFE_PRESENTATION_ID, "The presentation image is invalid."),
+        articlePresentationImageGeometrySchema,
+      )
+      .refine(
+        (settings) => Object.keys(settings).length <= ARTICLE_PRESENTATION_MAX_IMAGES,
+        "The presentation contains too many images.",
+      )
+      .default({}),
   })
   .strict();
 
@@ -222,6 +255,7 @@ function mergeAdjacentSegments(
 export function createDefaultArticlePresentation(
   sourceUpdatedAt: number,
   sourceBlocks: readonly ArticlePresentationSourceBlock[],
+  sourceImageIds: readonly string[] = [],
 ): ArticlePresentation {
   return articlePresentationSchema.parse({
     version: ARTICLE_PRESENTATION_VERSION,
@@ -232,6 +266,17 @@ export function createDefaultArticlePresentation(
     })),
     imageScalePercent: ARTICLE_IMAGE_MAX_SCALE_PERCENT,
     imageAspectRatio: null,
+    imageSettings: Object.fromEntries(
+      sourceImageIds
+        .filter((imageId) => imageId !== "hero")
+        .map((imageId) => [
+          imageId,
+          {
+            imageScalePercent: ARTICLE_IMAGE_MAX_SCALE_PERCENT,
+            imageAspectRatio: null,
+          },
+        ]),
+    ),
   });
 }
 
@@ -239,6 +284,7 @@ export function validateArticlePresentation(
   input: unknown,
   sourceUpdatedAt: number,
   sourceBlocks: readonly ArticlePresentationSourceBlock[],
+  sourceImageIds: readonly string[] = ["hero"],
 ) {
   const parsed = articlePresentationSchema.parse(input);
   if (parsed.sourceUpdatedAt !== sourceUpdatedAt) {
@@ -273,7 +319,54 @@ export function validateArticlePresentation(
     throw new Error("The article contains too many formatting changes.");
   }
 
+  const allowedImages = new Set(sourceImageIds);
+  for (const imageId of Object.keys(parsed.imageSettings)) {
+    if (!allowedImages.has(imageId)) {
+      throw new Error("Presentation images cannot be added or replaced.");
+    }
+  }
+
   return articlePresentationSchema.parse({ ...parsed, blocks });
+}
+
+export function articlePresentationImageGeometry(
+  presentation: ArticlePresentation,
+  imageId = "hero",
+): ArticlePresentationImageGeometry {
+  if (imageId === "hero") {
+    return {
+      imageScalePercent: presentation.imageScalePercent,
+      imageAspectRatio: presentation.imageAspectRatio,
+    };
+  }
+  return (
+    presentation.imageSettings[imageId] ?? {
+      imageScalePercent: ARTICLE_IMAGE_MAX_SCALE_PERCENT,
+      imageAspectRatio: null,
+    }
+  );
+}
+
+export function setArticlePresentationImageGeometry(
+  presentation: ArticlePresentation,
+  imageId: string,
+  geometry: ArticlePresentationImageGeometry,
+) {
+  const parsedGeometry = articlePresentationImageGeometrySchema.parse(geometry);
+  if (imageId === "hero") {
+    return articlePresentationSchema.parse({
+      ...presentation,
+      imageScalePercent: parsedGeometry.imageScalePercent,
+      imageAspectRatio: parsedGeometry.imageAspectRatio,
+    });
+  }
+  return articlePresentationSchema.parse({
+    ...presentation,
+    imageSettings: {
+      ...presentation.imageSettings,
+      [imageId]: parsedGeometry,
+    },
+  });
 }
 
 export function articlePresentationBlockText(

@@ -151,12 +151,10 @@
 .imageLink img {
   height: auto;
   object-fit: cover;
-  filter: grayscale(1) contrast(0.94);
-  transition: filter 220ms ease, transform 220ms ease;
+  transition: transform 220ms ease;
 }
 
 .imageLink:hover img {
-  filter: grayscale(0.78) contrast(0.98);
   transform: scale(1.012);
 }
 

@@ -16,7 +16,7 @@
 ## PressReady Target Styles
 - Gold marker replaces the reference green dot; current paper, ink, muted, serif, and rule tokens remain unchanged.
 - Shelf heading uses the existing numbered editorial heading pattern and a text link to the archive.
-- Images remain grayscale on the homepage; uploaded color is not destructively altered in storage.
+- Images retain their full colour on the homepage; uploaded colour is not altered in storage or presentation.
 
 ## States and Behaviors
 - Every story title and image is a deep link; category action links to its archive.

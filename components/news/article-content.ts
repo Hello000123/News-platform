@@ -108,7 +108,7 @@ export function placeholderImageUrl(
   height: number,
 ) {
   const seed = encodeURIComponent(`pressready-${articleId}`);
-  return `https://picsum.photos/seed/${seed}/${width}/${height}.webp?grayscale`;
+  return `https://picsum.photos/seed/${seed}/${width}/${height}.webp`;
 }
 
 export function selectRelatedArticles(

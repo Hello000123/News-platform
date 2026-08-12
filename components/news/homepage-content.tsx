@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 
 import {
   articleDisplayTitle,
-  articlePresentationSourceBlocks,
   articleTimestamp,
   extractArticleKeyPoints,
   extractArticleSummary,
@@ -19,6 +18,10 @@ import {
   createDefaultArticlePresentation,
   type ArticlePresentation,
 } from "@/lib/shared/article-presentation";
+import {
+  createPublicPagePresentationSource,
+  presentationItemToken,
+} from "@/lib/shared/public-page-presentation";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 import {
   NEWS_CATEGORIES,
@@ -27,7 +30,6 @@ import {
 } from "@/lib/shared/news-categories";
 
 const CATEGORY_SHELF_SIZE = 3;
-const PROTOTYPE_TOPICS = ["生成式 AI", "數碼共融", "社區創新", "影響力營運"];
 
 export {
   articleDisplayTitle,
@@ -49,7 +51,6 @@ export interface HomepageView {
   related: HomepageArticle[];
   categoryShelves: HomepageCategoryShelf[];
   latest: HomepageArticle[];
-  topics: string[];
 }
 
 export interface HomepageCategoryShelf {
@@ -119,7 +120,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
       "把數碼能力、語言及使用限制納入設計。",
       "以長期社會效益檢視工具的真正價值。",
     ],
-    imageUrl: "https://picsum.photos/seed/community-tech/1200/800.webp?grayscale",
+    imageUrl: "https://picsum.photos/seed/community-tech/1200/800.webp",
   }),
   prototypeArticle({
     id: "prototype-accessible-ai",
@@ -127,7 +128,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     title: "產品團隊如何讓 AI 介面回應不同使用能力",
     category: "technology",
     publishedAt: "2026-07-28T08:10:00+08:00",
-    imageUrl: "https://picsum.photos/seed/accessible-ai/720/405.webp?grayscale",
+    imageUrl: "https://picsum.photos/seed/accessible-ai/720/405.webp",
   }),
   prototypeArticle({
     id: "prototype-repair-network",
@@ -135,7 +136,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     title: "維修社企如何把技能、零件與社區需要連起來",
     category: "social-enterprise",
     publishedAt: "2026-07-28T07:55:00+08:00",
-    imageUrl: "https://picsum.photos/seed/repair-network/720/405.webp?grayscale",
+    imageUrl: "https://picsum.photos/seed/repair-network/720/405.webp",
   }),
   prototypeArticle({
     id: "prototype-open-source-tech",
@@ -145,7 +146,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     summary: "新框架不只比較答案正確率，也把粵語語境、資料透明度與實際使用情境納入測試。",
     author: "何日安",
     publishedAt: "2026-07-28T07:40:00+08:00",
-    imageUrl: "https://picsum.photos/seed/open-source-tech/960/540.webp?grayscale",
+    imageUrl: "https://picsum.photos/seed/open-source-tech/960/540.webp",
   }),
   prototypeArticle({
     id: "prototype-ai-product-team",
@@ -169,7 +170,7 @@ const PROTOTYPE_HOMEPAGE_ARTICLES: readonly HomepageArticle[] = [
     summary: "團隊把共同採購、人才培訓與會員制度放進同一營運模型，尋找能夠長期延續的收入。",
     author: "梁文希",
     publishedAt: "2026-07-28T06:40:00+08:00",
-    imageUrl: "https://picsum.photos/seed/social-enterprise/960/540.webp?grayscale",
+    imageUrl: "https://picsum.photos/seed/social-enterprise/960/540.webp",
   }),
   prototypeArticle({
     id: "prototype-mobile-services",
@@ -269,21 +270,92 @@ export function buildHomepageView(
       articles: [...categoryArticles, ...prototypeArticles].slice(0, CATEGORY_SHELF_SIZE),
     };
   });
-  const topics = [
-    ...new Set(
-      homepageArticles
-        .map(({ article }) => article.feedName.trim())
-        .filter(Boolean),
-    ),
-  ].slice(0, 4);
-
   return {
     lead: completeHomepageArticles[0] ?? null,
     related,
     categoryShelves,
     latest: homepageArticles.length > 0 ? homepageArticles : [...PROTOTYPE_HOMEPAGE_ARTICLES],
-    topics: topics.length > 0 ? topics : [...PROTOTYPE_TOPICS],
   };
+}
+
+function homepageItemPrefix(
+  section: string,
+  article: HomepageArticle,
+) {
+  return [
+    "home",
+    section,
+    presentationItemToken(`${article.article.id}:${article.article.updatedAt}`),
+  ].join(":");
+}
+
+function homepageBlockId(
+  section: string,
+  article: HomepageArticle,
+  field: string,
+) {
+  return `${homepageItemPrefix(section, article)}:${field}`;
+}
+
+function homepageImageId(
+  section: string,
+  article: HomepageArticle,
+) {
+  return `${homepageItemPrefix(section, article)}:image`;
+}
+
+export function homepagePresentationSource(view: HomepageView) {
+  const blocks: { id: string; text: string }[] = [];
+  const imageIds: string[] = [];
+  if (view.lead) {
+    blocks.push({
+      id: homepageBlockId("lead", view.lead, "title"),
+      text: homepageArticleTitle(view.lead),
+    });
+    if (view.lead.summary) {
+      blocks.push({
+        id: homepageBlockId("lead", view.lead, "deck"),
+        text: view.lead.summary,
+      });
+    }
+    view.lead.keyPoints.forEach((point, index) => {
+      blocks.push({
+        id: homepageBlockId("lead", view.lead!, `key:${index}`),
+        text: point,
+      });
+    });
+    imageIds.push(homepageImageId("lead", view.lead));
+  }
+  view.related.forEach((article) => {
+    blocks.push({
+      id: homepageBlockId("related", article, "title"),
+      text: homepageArticleTitle(article),
+    });
+    imageIds.push(homepageImageId("related", article));
+  });
+  view.categoryShelves.forEach((shelf) => {
+    shelf.articles.forEach((article) => {
+      const section = `shelf-${shelf.category.value}`;
+      blocks.push({
+        id: homepageBlockId(section, article, "title"),
+        text: homepageArticleTitle(article),
+      });
+      if (article.summary) {
+        blocks.push({
+          id: homepageBlockId(section, article, "deck"),
+          text: article.summary,
+        });
+      }
+      imageIds.push(homepageImageId(section, article));
+    });
+  });
+  view.latest.forEach((article) => {
+    blocks.push({
+      id: homepageBlockId("latest", article, "title"),
+      text: homepageArticleTitle(article),
+    });
+  });
+  return createPublicPagePresentationSource("homepage", blocks, imageIds);
 }
 
 function formatDate(timestamp: number | null) {
@@ -326,12 +398,14 @@ function homepageArticleCategoryLabel(article: HomepageArticle) {
 
 function StoryLink({
   article,
+  editing = false,
   children,
 }: {
   article: HomepageArticle;
+  editing?: boolean;
   children: ReactNode;
 }) {
-  if (article.isPrototype) return children;
+  if (article.isPrototype || editing) return children;
   return <Link href={articleHref(article)}>{children}</Link>;
 }
 
@@ -343,6 +417,7 @@ function ArticleImage({
   loading = "lazy",
   fetchPriority,
   presentation = false,
+  presentationImageId,
   disableLink = false,
 }: {
   article: HomepageArticle;
@@ -352,6 +427,7 @@ function ArticleImage({
   loading?: "eager" | "lazy";
   fetchPriority?: "high" | "low" | "auto";
   presentation?: boolean;
+  presentationImageId?: string;
   disableLink?: boolean;
 }) {
   const source =
@@ -360,6 +436,7 @@ function ArticleImage({
     placeholderImageUrl(article.article.id, width, height);
   const image = presentation ? (
     <ArticlePresentationImage
+      imageId={presentationImageId}
       src={source}
       alt={alt}
       intrinsicWidth={width}
@@ -387,7 +464,12 @@ function ArticleImage({
   );
 }
 
-function LeadIndex({ keyPoints }: { keyPoints: string[] }) {
+function LeadIndex({
+  article,
+}: {
+  article: HomepageArticle;
+}) {
+  const { keyPoints } = article;
   if (keyPoints.length === 0) return null;
   return (
     <aside className="news-v1-lead-index" aria-label="主稿重點導讀">
@@ -396,7 +478,12 @@ function LeadIndex({ keyPoints }: { keyPoints: string[] }) {
         {keyPoints.map((point, index) => (
           <li key={`${index}-${point}`}>
             <span>{String(index + 1).padStart(2, "0")}</span>
-            <p>{point}</p>
+            <p>
+              <ArticlePresentationText
+                blockId={homepageBlockId("lead", article, `key:${index}`)}
+                text={point}
+              />
+            </p>
           </li>
         ))}
       </ol>
@@ -404,7 +491,13 @@ function LeadIndex({ keyPoints }: { keyPoints: string[] }) {
   );
 }
 
-function RelatedStory({ article }: { article: HomepageArticle }) {
+function RelatedStory({
+  article,
+  editing,
+}: {
+  article: HomepageArticle;
+  editing: boolean;
+}) {
   const timestamp = articleTimestamp(article.article);
   const title = homepageArticleTitle(article);
   return (
@@ -415,19 +508,35 @@ function RelatedStory({ article }: { article: HomepageArticle }) {
           width={720}
           height={405}
           alt={`${title} 的新聞示意圖片`}
+          presentation
+          presentationImageId={homepageImageId("related", article)}
+          disableLink={editing}
         />
       </figure>
       <p>
         {article.article.feedName}・{formatDate(timestamp)}
       </p>
       <h3>
-        <StoryLink article={article}>{title}</StoryLink>
+        <StoryLink article={article} editing={editing}>
+          <ArticlePresentationText
+            blockId={homepageBlockId("related", article, "title")}
+            text={title}
+          />
+        </StoryLink>
       </h3>
     </article>
   );
 }
 
-function CategoryFeature({ article }: { article: HomepageArticle }) {
+function CategoryFeature({
+  article,
+  section,
+  editing,
+}: {
+  article: HomepageArticle;
+  section: string;
+  editing: boolean;
+}) {
   const timestamp = articleTimestamp(article.article);
   const title = homepageArticleTitle(article);
   return (
@@ -438,6 +547,9 @@ function CategoryFeature({ article }: { article: HomepageArticle }) {
           width={720}
           height={450}
           alt={`${title} 的分類新聞圖片`}
+          presentation
+          presentationImageId={homepageImageId(section, article)}
+          disableLink={editing}
         />
       </figure>
       <article>
@@ -445,9 +557,21 @@ function CategoryFeature({ article }: { article: HomepageArticle }) {
           {homepageArticleCategoryLabel(article)}・{formatDate(timestamp)}
         </p>
         <h3>
-          <StoryLink article={article}>{title}</StoryLink>
+          <StoryLink article={article} editing={editing}>
+            <ArticlePresentationText
+              blockId={homepageBlockId(section, article, "title")}
+              text={title}
+            />
+          </StoryLink>
         </h3>
-        {article.summary ? <p>{article.summary}</p> : null}
+        {article.summary ? (
+          <p>
+            <ArticlePresentationText
+              blockId={homepageBlockId(section, article, "deck")}
+              text={article.summary}
+            />
+          </p>
+        ) : null}
         <p className="news-v1-article-meta">
           {article.article.author ?? article.article.feedName}・{formatTime(timestamp)}
         </p>
@@ -456,7 +580,15 @@ function CategoryFeature({ article }: { article: HomepageArticle }) {
   );
 }
 
-function CategorySupportStory({ article }: { article: HomepageArticle }) {
+function CategorySupportStory({
+  article,
+  section,
+  editing,
+}: {
+  article: HomepageArticle;
+  section: string;
+  editing: boolean;
+}) {
   const timestamp = articleTimestamp(article.article);
   const title = homepageArticleTitle(article);
   return (
@@ -467,21 +599,36 @@ function CategorySupportStory({ article }: { article: HomepageArticle }) {
           width={240}
           height={150}
           alt={`${title} 的分類新聞圖片`}
+          presentation
+          presentationImageId={homepageImageId(section, article)}
+          disableLink={editing}
         />
       </figure>
       <div>
         <p>{formatDate(timestamp)}</p>
         <h3>
-          <StoryLink article={article}>{title}</StoryLink>
+          <StoryLink article={article} editing={editing}>
+            <ArticlePresentationText
+              blockId={homepageBlockId(section, article, "title")}
+              text={title}
+            />
+          </StoryLink>
         </h3>
       </div>
     </article>
   );
 }
 
-function CategoryShelf({ shelf }: { shelf: HomepageCategoryShelf }) {
+function CategoryShelf({
+  shelf,
+  editing,
+}: {
+  shelf: HomepageCategoryShelf;
+  editing: boolean;
+}) {
   const [feature, ...supports] = shelf.articles;
   const headingId = `news-v1-category-${shelf.category.value}`;
+  const section = `shelf-${shelf.category.value}`;
 
   if (!feature) return null;
 
@@ -502,11 +649,16 @@ function CategoryShelf({ shelf }: { shelf: HomepageCategoryShelf }) {
         </div>
       </header>
 
-      <CategoryFeature article={feature} />
+      <CategoryFeature article={feature} section={section} editing={editing} />
       {supports.length > 0 ? (
         <div className="news-v1-category-supports">
           {supports.map((article) => (
-            <CategorySupportStory key={article.article.id} article={article} />
+            <CategorySupportStory
+              key={article.article.id}
+              article={article}
+              section={section}
+              editing={editing}
+            />
           ))}
         </div>
       ) : null}
@@ -530,26 +682,23 @@ export function NewsHomepage({
   const leadTimestamp = view.lead ? articleTimestamp(view.lead.article) : null;
   const leadTitle = view.lead ? homepageArticleTitle(view.lead) : null;
   const issueDate = formatDate(leadTimestamp);
-  const presentationAvailable = Boolean(
-    view.lead &&
-      !view.lead.isPrototype &&
-      presentationDraft &&
-      publishedPresentation,
-  );
-  const defaultPresentation = view.lead
+  const pageSource = homepagePresentationSource(view);
+  const defaultPresentation = pageSource.sourceBlocks.length
     ? createDefaultArticlePresentation(
-        view.lead.article.updatedAt,
-        articlePresentationSourceBlocks(view.lead.article),
+        pageSource.sourceUpdatedAt,
+        pageSource.sourceBlocks,
+        pageSource.sourceImageIds,
       )
     : null;
   const effectiveDraft = presentationDraft ?? defaultPresentation;
   const effectivePublished = publishedPresentation ?? defaultPresentation;
+  const presentationAvailable = Boolean(effectiveDraft && effectivePublished);
 
   const mainContent = (
     <>
       {canEditPresentation && presentationAvailable && !editPresentation ? (
         <div className="news-presentation-entry news-v1-page-shell">
-          <Link href="/?edit=1">Edit front page lead</Link>
+          <Link href="/?edit=1">Edit front page</Link>
         </div>
       ) : null}
 
@@ -567,11 +716,17 @@ export function NewsHomepage({
             <h1 id="news-v1-lead-heading">
               {view.lead ? (
                 editPresentation && presentationAvailable ? (
-                  <ArticlePresentationText blockId="title" text={leadTitle ?? ""} />
+                  <ArticlePresentationText
+                    blockId={homepageBlockId("lead", view.lead, "title")}
+                    text={leadTitle ?? ""}
+                  />
                 ) : (
                   <StoryLink article={view.lead}>
                     {presentationAvailable ? (
-                      <ArticlePresentationText blockId="title" text={leadTitle ?? ""} />
+                      <ArticlePresentationText
+                        blockId={homepageBlockId("lead", view.lead, "title")}
+                        text={leadTitle ?? ""}
+                      />
                     ) : (
                       leadTitle
                     )}
@@ -585,7 +740,10 @@ export function NewsHomepage({
             <p className="news-v1-standfirst">
               {view.lead?.summary ? (
                 presentationAvailable ? (
-                  <ArticlePresentationText blockId="deck" text={view.lead.summary} />
+                  <ArticlePresentationText
+                    blockId={homepageBlockId("lead", view.lead, "deck")}
+                    text={view.lead.summary}
+                  />
                 ) : (
                   view.lead.summary
                 )
@@ -617,6 +775,7 @@ export function NewsHomepage({
                   loading="eager"
                   fetchPriority="high"
                   presentation={presentationAvailable}
+                  presentationImageId={homepageImageId("lead", view.lead)}
                   disableLink={editPresentation}
                 />
                 <figcaption>
@@ -632,7 +791,7 @@ export function NewsHomepage({
             )}
           </div>
 
-          {view.lead ? <LeadIndex keyPoints={view.lead.keyPoints} /> : null}
+          {view.lead ? <LeadIndex article={view.lead} /> : null}
 
           {view.related.length > 0 ? (
             <div className="news-v1-hero-support" aria-label="延伸閱讀">
@@ -642,7 +801,11 @@ export function NewsHomepage({
                 <span>{String(view.related.length).padStart(2, "0")} STORIES</span>
               </header>
               {view.related.map((article) => (
-                <RelatedStory key={article.article.id} article={article} />
+                <RelatedStory
+                  key={article.article.id}
+                  article={article}
+                  editing={editPresentation}
+                />
               ))}
             </div>
           ) : null}
@@ -651,7 +814,11 @@ export function NewsHomepage({
         {view.categoryShelves.length > 0 ? (
           <div className="news-v1-page-shell news-v1-category-grid">
             {view.categoryShelves.map((shelf) => (
-              <CategoryShelf key={shelf.category.value} shelf={shelf} />
+              <CategoryShelf
+                key={shelf.category.value}
+                shelf={shelf}
+                editing={editPresentation}
+              />
             ))}
           </div>
         ) : null}
@@ -680,7 +847,12 @@ export function NewsHomepage({
                     </time>
                     <p>{homepageArticleCategoryLabel(article)}</p>
                     <h3>
-                      <StoryLink article={article}>{homepageArticleTitle(article)}</StoryLink>
+                      <StoryLink article={article} editing={editPresentation}>
+                        <ArticlePresentationText
+                          blockId={homepageBlockId("latest", article, "title")}
+                          text={homepageArticleTitle(article)}
+                        />
+                      </StoryLink>
                     </h3>
                   </li>
                 );
@@ -694,15 +866,16 @@ export function NewsHomepage({
 
   return (
     <div className="news-v1-homepage">
-      <EditorialPublicHeader issueDate={issueDate} topics={view.topics} />
-      {presentationAvailable && view.lead && effectiveDraft && effectivePublished ? (
+      <EditorialPublicHeader issueDate={issueDate} />
+      {presentationAvailable && effectiveDraft && effectivePublished ? (
         <ArticlePresentationEditorProvider
-          articleId={view.lead.article.id}
+          key={`homepage:${editPresentation ? "edit" : "read"}:${effectiveDraft.sourceUpdatedAt}:${effectivePublished.sourceUpdatedAt}`}
+          publicPageKey="homepage"
           editMode={editPresentation}
           initialDraft={effectiveDraft}
           initialPublished={effectivePublished}
           exitHref="/"
-          editorLabel="front page lead"
+          editorLabel="front page"
         >
           {mainContent}
         </ArticlePresentationEditorProvider>
