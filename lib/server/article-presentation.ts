@@ -57,8 +57,8 @@ function readStoredPresentation(
   try {
     return validatedPresentationForArticle(JSON.parse(json), article);
   } catch {
-    // A content edit invalidates range-based formatting. Falling back to the
-    // immutable default is safer than applying spans to different text.
+    // Invalid JSON, unsafe formatting, or a changed block topology falls back
+    // to the source-backed presentation instead of rendering untrusted state.
     return null;
   }
 }

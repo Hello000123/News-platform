@@ -11,6 +11,11 @@ import {
   NewsHomepage,
   placeholderImageUrl,
 } from "@/components/news/homepage-content";
+import { articlePresentationSourceBlocks } from "@/components/news/article-content";
+import {
+  createDefaultArticlePresentation,
+  replaceArticleText,
+} from "@/lib/shared/article-presentation";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 
 vi.mock("next/link", () => ({
@@ -184,5 +189,54 @@ describe("NewsHomepage rendering", () => {
     expect(leadIndex).toBeTruthy();
     expect(leadIndex?.parentElement?.classList.contains("news-v1-hero")).toBe(true);
     expect(leadIndex?.parentElement?.classList.contains("news-v1-hero-copy")).toBe(false);
+  });
+
+  it("renders the lead article's published presentation and offers employee front-page editing", () => {
+    const leadArticle = article(0);
+    const view = buildHomepageView([leadArticle]);
+    const initial = createDefaultArticlePresentation(
+      leadArticle.updatedAt,
+      articlePresentationSourceBlocks(leadArticle),
+    );
+    const published = replaceArticleText(initial, "title", 0, 5, "Front-page");
+
+    const { container } = render(
+      <NewsHomepage
+        view={view}
+        presentationDraft={published}
+        publishedPresentation={published}
+        canEditPresentation
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Edit front page lead" }).getAttribute("href")).toBe(
+      "/?edit=1",
+    );
+    expect(screen.getByRole("heading", { level: 1, name: /Front-page 0 headline/u })).toBeTruthy();
+    expect(container.querySelector(".news-presentation-image-frame")).toBeTruthy();
+  });
+
+  it("opens the same restricted Home ribbon directly on the front page", () => {
+    const leadArticle = article(0);
+    const view = buildHomepageView([leadArticle]);
+    const presentation = createDefaultArticlePresentation(
+      leadArticle.updatedAt,
+      articlePresentationSourceBlocks(leadArticle),
+    );
+
+    render(
+      <NewsHomepage
+        view={view}
+        presentationDraft={presentation}
+        publishedPresentation={presentation}
+        canEditPresentation
+        editPresentation
+      />,
+    );
+
+    expect(screen.getByRole("toolbar", { name: "Home text formatting ribbon" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Editable title" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).querySelector("a")).toBeNull();
+    expect(screen.getByRole("link", { name: "Exit editing" }).getAttribute("href")).toBe("/");
   });
 });

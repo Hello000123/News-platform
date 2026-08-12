@@ -14,7 +14,9 @@ import {
 import { getPipelineArticleById } from "@/lib/server/feeds/repository";
 import {
   applyArticleTextStyle,
+  articlePresentationBlockText,
   createDefaultArticlePresentation,
+  replaceArticleText,
   validateArticlePresentation,
   type ArticlePresentation,
 } from "@/lib/shared/article-presentation";
@@ -34,37 +36,58 @@ const sourceBlocks = [
 ];
 
 describe("restricted article presentation model", () => {
-  it("formats only the selected text and keeps the original block content", () => {
+  it("formats only the selected text and preserves every other segment style", () => {
     const initial = createDefaultArticlePresentation(20, sourceBlocks);
     const formatted = applyArticleTextStyle(initial, "body:0", 0, 9, {
       fontFamily: "sans",
       fontSize: 24,
+      bold: true,
+      italic: true,
+      underline: true,
+      strikethrough: true,
+      script: "superscript",
+      highlightColor: "#fff59d",
+      fontColor: "#245b88",
     });
 
     expect(formatted.blocks[1].segments).toEqual([
-      {
+      expect.objectContaining({
         text: "Immutable",
         fontFamily: "sans",
         fontSize: 24,
-      },
-      {
+        bold: true,
+        italic: true,
+        underline: true,
+        strikethrough: true,
+        script: "superscript",
+        highlightColor: "#fff59d",
+        fontColor: "#245b88",
+      }),
+      expect.objectContaining({
         text: " article text.",
         fontFamily: null,
         fontSize: null,
-      },
+      }),
     ]);
     expect(
       formatted.blocks[1].segments.map((segment) => segment.text).join(""),
     ).toBe(sourceBlocks[1].text);
   });
 
-  it("rejects content edits, reordered blocks, unsafe styles, and oversized images", () => {
+  it("allows plain-text edits while rejecting empty blocks, structure changes, unsafe styles, and invalid images", () => {
     const initial = createDefaultArticlePresentation(20, sourceBlocks);
-    const changedText = structuredClone(initial);
-    changedText.blocks[0].segments[0].text = "A different headline";
+    const changedText = replaceArticleText(initial, "title", 2, 7, "revised");
+    expect(
+      articlePresentationBlockText(
+        validateArticlePresentation(changedText, 20, sourceBlocks),
+        "title",
+      ),
+    ).toBe("A revised headline");
+
+    const emptyTitle = replaceArticleText(initial, "title", 0, sourceBlocks[0].text.length, "");
     expect(() =>
-      validateArticlePresentation(changedText, 20, sourceBlocks),
-    ).toThrow(/text cannot be changed/iu);
+      validateArticlePresentation(emptyTitle, 20, sourceBlocks),
+    ).toThrow(/cannot be left empty/iu);
 
     const reordered = { ...initial, blocks: [...initial.blocks].reverse() };
     expect(() =>
@@ -95,7 +118,36 @@ describe("restricted article presentation model", () => {
     ).toThrow();
     expect(() =>
       validateArticlePresentation(
+        {
+          ...initial,
+          blocks: initial.blocks.map((block, index) =>
+            index === 0
+              ? {
+                  ...block,
+                  segments: [
+                    {
+                      ...block.segments[0],
+                      fontColor: "red; background:url(https://example.test)",
+                    },
+                  ],
+                }
+              : block,
+          ),
+        },
+        20,
+        sourceBlocks,
+      ),
+    ).toThrow();
+    expect(() =>
+      validateArticlePresentation(
         { ...initial, imageScalePercent: 101 },
+        20,
+        sourceBlocks,
+      ),
+    ).toThrow();
+    expect(() =>
+      validateArticlePresentation(
+        { ...initial, imageAspectRatio: 9 },
         20,
         sourceBlocks,
       ),
@@ -178,13 +230,18 @@ describe("article presentation persistence", () => {
         article!.updatedAt,
         blocks,
       );
-      const draft = applyArticleTextStyle(initial, "title", 0, 6, {
+      const edited = replaceArticleText(initial, "title", 0, 6, "Edited");
+      const draft = applyArticleTextStyle(edited, "title", 0, 6, {
         fontFamily: "serif",
         fontSize: 40,
+        bold: true,
+        underline: true,
+        fontColor: "#245b88",
       });
       const scaledDraft: ArticlePresentation = {
         ...draft,
         imageScalePercent: 70,
+        imageAspectRatio: 1.25,
       };
 
       await saveArticlePresentationDraft(
@@ -219,6 +276,10 @@ describe("article presentation persistence", () => {
         publishedArticle!,
       );
       expect(publishedState.published.imageScalePercent).toBe(70);
+      expect(publishedState.published.imageAspectRatio).toBe(1.25);
+      expect(articlePresentationBlockText(publishedState.published, "title")).toBe(
+        "Edited headline",
+      );
       expect(publishedState.hasUnpublishedChanges).toBe(false);
     } finally {
       await miniflare.dispose();

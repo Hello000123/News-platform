@@ -172,14 +172,19 @@ duplicate. Imported source
 feeds are paused deliberately, so the site's ordinary RSS scheduler does not try to
 fetch their placeholder URLs.
 
-Employees can open any live article and choose **Edit presentation** to enter the
-restricted presentation editor. Draft and published formatting are stored
-separately. The editor supports allowlisted font family and font size changes on
-selected text plus bounded, aspect-ratio-preserving hero-image scaling. Article
-text, block order, layout, navigation, margins, header, and footer are not part of
-the saved presentation model. The server validates every save against the exact
-article text; **Save Changes** keeps a private draft and **Publish** promotes the
-validated draft through the existing `approved` publication state.
+Employees can open any live article and choose **Edit presentation**, or edit the
+lead story directly from the public front page. Draft and published versions are
+stored separately. The Word-style Home ribbon supports direct plain-text editing,
+undo and redo, allowlisted fonts and sizes, case changes, bold, italic, underline,
+strikethrough, subscript, superscript, highlight colour, and font colour. Images
+can be resized within their existing container with a drag handle; free dragging
+may change the aspect ratio and holding Ctrl preserves the source image ratio.
+Article blocks remain fixed: they cannot be added, removed, moved, or reordered,
+and navigation, columns, margins, header, and footer never enter the saved model.
+The server accepts plain text only, validates all style values and image bounds,
+and rejects empty or structurally changed blocks. **Save Changes** keeps a private
+draft and **Publish** promotes the validated version through the existing
+`approved` publication state.
 
 Employees can open a client name from the **Client Accounts** tab to view a
 dedicated client profile, a server-paginated list of verified published news,

@@ -3,12 +3,22 @@ import type { ReactNode } from "react";
 
 import {
   articleDisplayTitle,
+  articlePresentationSourceBlocks,
   articleTimestamp,
   extractArticleKeyPoints,
   extractArticleSummary,
   placeholderImageUrl,
 } from "@/components/news/article-content";
+import {
+  ArticlePresentationEditorProvider,
+  ArticlePresentationImage,
+  ArticlePresentationText,
+} from "@/components/news/article-presentation-editor";
 import { EditorialPublicFooter, EditorialPublicHeader } from "@/components/news/editorial-public-chrome";
+import {
+  createDefaultArticlePresentation,
+  type ArticlePresentation,
+} from "@/lib/shared/article-presentation";
 import type { PipelineArticleView } from "@/lib/shared/feeds-contracts";
 import {
   NEWS_CATEGORIES,
@@ -332,6 +342,8 @@ function ArticleImage({
   alt,
   loading = "lazy",
   fetchPriority,
+  presentation = false,
+  disableLink = false,
 }: {
   article: HomepageArticle;
   width: number;
@@ -339,12 +351,25 @@ function ArticleImage({
   alt: string;
   loading?: "eager" | "lazy";
   fetchPriority?: "high" | "low" | "auto";
+  presentation?: boolean;
+  disableLink?: boolean;
 }) {
-  const image = (
+  const source =
+    article.imageUrl ??
+    article.article.imageUrl ??
+    placeholderImageUrl(article.article.id, width, height);
+  const image = presentation ? (
+    <ArticlePresentationImage
+      src={source}
+      alt={alt}
+      intrinsicWidth={width}
+      intrinsicHeight={height}
+    />
+  ) : (
     // Arbitrary editor-supplied hosts cannot be safely enumerated in Next image remotePatterns.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={article.imageUrl ?? article.article.imageUrl ?? placeholderImageUrl(article.article.id, width, height)}
+      src={source}
       width={width}
       height={height}
       alt={alt}
@@ -353,7 +378,7 @@ function ArticleImage({
     />
   );
 
-  if (article.isPrototype) return image;
+  if (article.isPrototype || disableLink) return image;
 
   return (
     <Link className="news-v1-image-link" href={articleHref(article)}>
@@ -489,14 +514,44 @@ function CategoryShelf({ shelf }: { shelf: HomepageCategoryShelf }) {
   );
 }
 
-export function NewsHomepage({ view }: { view: HomepageView }) {
+export function NewsHomepage({
+  view,
+  presentationDraft,
+  publishedPresentation,
+  canEditPresentation = false,
+  editPresentation = false,
+}: {
+  view: HomepageView;
+  presentationDraft?: ArticlePresentation;
+  publishedPresentation?: ArticlePresentation;
+  canEditPresentation?: boolean;
+  editPresentation?: boolean;
+}) {
   const leadTimestamp = view.lead ? articleTimestamp(view.lead.article) : null;
   const leadTitle = view.lead ? homepageArticleTitle(view.lead) : null;
   const issueDate = formatDate(leadTimestamp);
+  const presentationAvailable = Boolean(
+    view.lead &&
+      !view.lead.isPrototype &&
+      presentationDraft &&
+      publishedPresentation,
+  );
+  const defaultPresentation = view.lead
+    ? createDefaultArticlePresentation(
+        view.lead.article.updatedAt,
+        articlePresentationSourceBlocks(view.lead.article),
+      )
+    : null;
+  const effectiveDraft = presentationDraft ?? defaultPresentation;
+  const effectivePublished = publishedPresentation ?? defaultPresentation;
 
-  return (
-    <div className="news-v1-homepage">
-      <EditorialPublicHeader issueDate={issueDate} topics={view.topics} />
+  const mainContent = (
+    <>
+      {canEditPresentation && presentationAvailable && !editPresentation ? (
+        <div className="news-presentation-entry news-v1-page-shell">
+          <Link href="/?edit=1">Edit front page lead</Link>
+        </div>
+      ) : null}
 
       <main id="news-v1-main">
         <section className="news-v1-page-shell news-v1-hero" aria-labelledby="news-v1-lead-heading">
@@ -511,14 +566,32 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
 
             <h1 id="news-v1-lead-heading">
               {view.lead ? (
-                <StoryLink article={view.lead}>{leadTitle}</StoryLink>
+                editPresentation && presentationAvailable ? (
+                  <ArticlePresentationText blockId="title" text={leadTitle ?? ""} />
+                ) : (
+                  <StoryLink article={view.lead}>
+                    {presentationAvailable ? (
+                      <ArticlePresentationText blockId="title" text={leadTitle ?? ""} />
+                    ) : (
+                      leadTitle
+                    )}
+                  </StoryLink>
+                )
               ) : (
                 "PressReady Newsroom"
               )}
             </h1>
 
             <p className="news-v1-standfirst">
-              {view.lead?.summary ?? "最新核准報道將在此出現，敬請稍候。"}
+              {view.lead?.summary ? (
+                presentationAvailable ? (
+                  <ArticlePresentationText blockId="deck" text={view.lead.summary} />
+                ) : (
+                  view.lead.summary
+                )
+              ) : (
+                "最新核准報道將在此出現，敬請稍候。"
+              )}
             </p>
 
             {view.lead ? (
@@ -543,6 +616,8 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
                   alt={`${leadTitle} 的封面新聞示意圖片`}
                   loading="eager"
                   fetchPriority="high"
+                  presentation={presentationAvailable}
+                  disableLink={editPresentation}
                 />
                 <figcaption>
                   <span>PressReady / Approved report</span>
@@ -614,7 +689,26 @@ export function NewsHomepage({ view }: { view: HomepageView }) {
           </section>
         ) : null}
       </main>
+    </>
+  );
 
+  return (
+    <div className="news-v1-homepage">
+      <EditorialPublicHeader issueDate={issueDate} topics={view.topics} />
+      {presentationAvailable && view.lead && effectiveDraft && effectivePublished ? (
+        <ArticlePresentationEditorProvider
+          articleId={view.lead.article.id}
+          editMode={editPresentation}
+          initialDraft={effectiveDraft}
+          initialPublished={effectivePublished}
+          exitHref="/"
+          editorLabel="front page lead"
+        >
+          {mainContent}
+        </ArticlePresentationEditorProvider>
+      ) : (
+        mainContent
+      )}
       <EditorialPublicFooter />
     </div>
   );
