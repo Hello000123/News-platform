@@ -61,6 +61,7 @@ describe("automatic AI usage suspension", () => {
       "0016_timestamped_agent_request_events.sql",
       "0017_configurable_agent_usage_suspensions.sql",
       "0020_configurable_agent_suspension_duration.sql",
+      "0021_client_account_suspension_and_recovery.sql",
     ]) {
       await executeSqlScript(
         database,

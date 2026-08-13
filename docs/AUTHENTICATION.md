@@ -64,6 +64,12 @@ single-statement D1 triggers that serialize event counting and enforcement.
 adds an independently configurable suspension time to every rule. The API and
 Admin Panel use hours with up to two decimal places; D1 stores exact whole
 seconds and retains six hours as the migration default.
+[`migrations/0021_client_account_suspension_and_recovery.sql`](../migrations/0021_client_account_suspension_and_recovery.sql)
+adds retained manual-suspension state, audited manual suspension and recovery,
+and session revocation for both manual and automatic suspension. A manual
+suspension requires a client-facing reason that is confirmed before email
+delivery. The same recovery operation clears manual and active automatic
+suspensions while preserving the password and all client data.
 No new secret or environment variable is required.
 
 ### Hosted-runtime password compatibility
@@ -119,12 +125,20 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
    hours, plus a per-rule suspension time from `0.01` to `8760` hours with up to
    two decimal places. All five rules start disabled with a request limit of 100
    and a six-hour suspension time. A valid request that raises a client above a
-   limit is recorded but stopped before an AI-provider call, then AI access is
+   limit is recorded but stopped before an AI-provider call, then account access is
    suspended for the triggering rule's configured duration. The shortest
    breached rule wins when periods overlap. Later attempts neither add events
    nor extend an active expiry. At the exact expiry timestamp the account is
    treated as active without a scheduled cleanup job. Employee accounts are
    exempt. The client list shows the reason and exact Hong Kong expiry time.
+   An active client can also be suspended manually. The administrator must
+   enter a reason, review the exact email message, and confirm before the
+   account is blocked. Existing sessions are revoked, later login attempts show
+   `This account has been suspended. Please check your email for details.`, and
+   all account data remains stored. A suspended client shows **Recover account**
+   in place of **Suspend client**. One recovery confirmation clears either
+   manual suspension or an active AI-usage suspension and lets the client sign
+   in again with the existing password.
    Removing a client deactivates the user, clears the password hash, revokes all
    sessions, invalidates unused setup tokens, stores an audit record, and sends
    the administrator's message to the client. Employee removal is not exposed.
@@ -243,7 +257,7 @@ the configured authorization header and this JSON shape:
   "tags": [
     {
       "name": "message_type",
-      "value": "new_request | approved_setup | rejected | client_removed"
+      "value": "new_request | approved_setup | rejected | client_removed | client_suspended"
     }
   ]
 }

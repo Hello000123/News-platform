@@ -19,6 +19,7 @@ const MULTILINE_CONTROL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u0
 const ENGLISH_KEYBOARD_CHARACTERS = /^[\u0020-\u007e]+$/u;
 export const ADMIN_MESSAGE_MAX_LENGTH = 1_000;
 export const CLIENT_REMOVAL_MESSAGE_MAX_LENGTH = 1_000;
+export const CLIENT_SUSPENSION_REASON_MAX_LENGTH = 1_000;
 export const PASSWORD_MIN_LENGTH = 9;
 export const PASSWORD_MAX_LENGTH = 63;
 export const PASSWORD_PROOF_BYTES = 32;
@@ -368,6 +369,35 @@ export const clientRemovalInputSchema = z
 
 export type ClientRemovalInput = z.infer<typeof clientRemovalInputSchema>;
 
+export const clientSuspensionInputSchema = z
+  .object({
+    reason: z
+      .string()
+      .max(
+        CLIENT_SUSPENSION_REASON_MAX_LENGTH + 64,
+        `Suspension reason must be ${CLIENT_SUSPENSION_REASON_MAX_LENGTH.toLocaleString()} characters or fewer.`,
+      )
+      .refine(
+        (value) => !MULTILINE_CONTROL_CHARACTERS.test(value),
+        "Suspension reason contains invalid characters.",
+      )
+      .transform((value) =>
+        value.normalize("NFC").replace(/\r\n?/gu, "\n").trim(),
+      )
+      .pipe(
+        z
+          .string()
+          .min(1, "Enter a suspension reason before continuing.")
+          .max(
+            CLIENT_SUSPENSION_REASON_MAX_LENGTH,
+            `Suspension reason must be ${CLIENT_SUSPENSION_REASON_MAX_LENGTH.toLocaleString()} characters or fewer.`,
+          ),
+      ),
+  })
+  .strict();
+
+export type ClientSuspensionInput = z.infer<typeof clientSuspensionInputSchema>;
+
 export interface AuthenticatedUser {
   id: string;
   email: string;
@@ -425,6 +455,17 @@ export interface AccountListUserView {
   periodReviewRequestCount: number;
   periodRewriteRequestCount: number;
   aiSuspension: AgentUsageSuspensionView | null;
+  manualSuspension: ManualAccountSuspensionView | null;
+}
+
+export interface ManualAccountSuspensionView {
+  startedAt: number;
+  reason: string;
+  suspendedBy: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
 }
 
 export interface AgentUsageSuspensionView {
@@ -471,6 +512,17 @@ export interface ClientRemovalAuditView {
   clientEmail: string;
   administratorAccountId: string;
   removalMessage: string;
+  createdAt: number;
+}
+
+export interface ClientSuspensionAuditView {
+  id: string;
+  clientAccountId: string;
+  administratorAccountId: string;
+  action: "manual_suspended" | "recovered";
+  reason: string | null;
+  recoveredManualSuspension: boolean;
+  recoveredAutomaticSuspension: boolean;
   createdAt: number;
 }
 

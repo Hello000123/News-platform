@@ -31,6 +31,8 @@ import {
 import { GET as getEmployeeAttachment } from "@/app/api/employee/account-requests/[id]/attachment/route";
 import { GET as listEmployeeRequests } from "@/app/api/employee/account-requests/route";
 import { POST as removeEmployeeClient } from "@/app/api/employee/accounts/[id]/remove/route";
+import { POST as recoverEmployeeClient } from "@/app/api/employee/accounts/[id]/recover/route";
+import { POST as suspendEmployeeClient } from "@/app/api/employee/accounts/[id]/suspend/route";
 import { GET as listEmployeeAccounts } from "@/app/api/employee/accounts/route";
 import {
   GET as getAgentUsageThresholds,
@@ -41,6 +43,7 @@ import { POST as extractDraftFile } from "@/app/api/uploads/extract/route";
 import { hashPassword, nowInSeconds } from "@/lib/server/auth/crypto";
 import { setDatabaseForTesting } from "@/lib/server/auth/database";
 import { setAccountDocumentBucketForTesting } from "@/lib/server/uploads/storage";
+import { incrementAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 import type { PasswordDerivation } from "@/lib/shared/auth-contracts";
 
 const ORIGIN = "http://localhost";
@@ -305,6 +308,35 @@ async function executeSqlScript(sql: string) {
   for (const statement of statements) await database.prepare(statement).run();
 }
 
+async function suspendClient(
+  clientId: string,
+  authentication: { cookie: string; csrf: string },
+  reason: string,
+) {
+  return suspendEmployeeClient(
+    jsonRequest(
+      `/api/employee/accounts/${clientId}/suspend`,
+      { reason },
+      authentication,
+    ),
+    routeContext(clientId),
+  );
+}
+
+async function recoverClient(
+  clientId: string,
+  authentication: { cookie: string; csrf: string },
+) {
+  return recoverEmployeeClient(
+    jsonRequest(
+      `/api/employee/accounts/${clientId}/recover`,
+      {},
+      authentication,
+    ),
+    routeContext(clientId),
+  );
+}
+
 beforeAll(async () => {
   miniflare = new Miniflare({
     modules: true,
@@ -350,6 +382,7 @@ beforeEach(async () => {
         suspension_duration_seconds = 21600,
         updated_at = 0,
         updated_by_user_id = NULL;
+    DELETE FROM client_account_suspension_audit_records;
     DELETE FROM client_removal_audit_records;
     DELETE FROM email_delivery_records;
     DELETE FROM approval_audit_records;
@@ -947,6 +980,194 @@ describe("account authentication and approval workflows", () => {
       accounts: [],
       summary: { employeeAccounts: 1, clientAccounts: 0 },
     });
+  });
+
+  it("suspends a client with an emailed reason and recovers the retained account", async () => {
+    const employeeAuth = await employeeAuthentication();
+    await insertUser({
+      id: "client-manual-suspension",
+      email: "manual-suspension@example.test",
+      fullName: "Manual Suspension Client",
+      role: "client",
+      passwordHash: clientHash,
+    });
+    const clientLogin = await loginAs(
+      "manual-suspension@example.test",
+      CLIENT_PASSWORD,
+    );
+    expect(clientLogin.response.status).toBe(200);
+
+    const forbidden = await suspendClient(
+      "client-manual-suspension",
+      clientLogin.authentication,
+      "A client cannot suspend an account.",
+    );
+    expect(forbidden.status).toBe(403);
+
+    const invalid = await suspendClient(
+      "client-manual-suspension",
+      employeeAuth,
+      "   ",
+    );
+    expect(invalid.status).toBe(400);
+
+    const reason =
+      "Access is paused while account ownership is reviewed.\r\nContact the newsroom administrator.";
+    const suspended = await suspendClient(
+      "client-manual-suspension",
+      employeeAuth,
+      reason,
+    );
+    expect(suspended.status).toBe(200);
+    expect(await suspended.json()).toMatchObject({
+      account: {
+        id: "client-manual-suspension",
+        manualSuspension: {
+          reason:
+            "Access is paused while account ownership is reviewed.\nContact the newsroom administrator.",
+          suspendedBy: { id: "employee-1" },
+        },
+      },
+      audit: {
+        action: "manual_suspended",
+        recoveredManualSuspension: false,
+        recoveredAutomaticSuspension: false,
+      },
+      emailDelivery: { status: "preview" },
+    });
+
+    const revokedSession = await currentSession(
+      getRequest("/api/auth/session", clientLogin.authentication.cookie),
+    );
+    expect(revokedSession.status).toBe(401);
+    const suspendedLogin = await loginResponse(
+      "manual-suspension@example.test",
+      CLIENT_PASSWORD,
+    );
+    expect(suspendedLogin.status).toBe(403);
+    expect(await suspendedLogin.json()).toEqual({
+      error: {
+        code: "ACCOUNT_SUSPENDED",
+        message:
+          "This account has been suspended. Please check your email for details.",
+      },
+    });
+    expect(
+      (await loginResponse("manual-suspension@example.test", "Wrong-Password-42!")).status,
+    ).toBe(401);
+
+    expect(
+      await database
+        .prepare(
+          `SELECT action, reason, actor_user_id, email_status
+           FROM client_account_suspension_audit_records
+           WHERE client_user_id = ? AND action = 'manual_suspended'`,
+        )
+        .bind("client-manual-suspension")
+        .first(),
+    ).toEqual({
+      action: "manual_suspended",
+      reason:
+        "Access is paused while account ownership is reviewed.\nContact the newsroom administrator.",
+      actor_user_id: "employee-1",
+      email_status: "preview",
+    });
+
+    const recovered = await recoverClient(
+      "client-manual-suspension",
+      employeeAuth,
+    );
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      account: {
+        id: "client-manual-suspension",
+        manualSuspension: null,
+        aiSuspension: null,
+      },
+      audit: {
+        action: "recovered",
+        recoveredManualSuspension: true,
+        recoveredAutomaticSuspension: false,
+      },
+    });
+    expect(
+      (await loginResponse("manual-suspension@example.test", CLIENT_PASSWORD)).status,
+    ).toBe(200);
+    expect(
+      (await recoverClient("client-manual-suspension", employeeAuth)).status,
+    ).toBe(409);
+  }, 20_000);
+
+  it("revokes access on automatic suspension and allows employee recovery", async () => {
+    const employeeAuth = await employeeAuthentication();
+    await insertUser({
+      id: "client-auto-recovery",
+      email: "auto-recovery@example.test",
+      fullName: "Automatic Recovery Client",
+      role: "client",
+      passwordHash: clientHash,
+    });
+    const clientLogin = await loginAs(
+      "auto-recovery@example.test",
+      CLIENT_PASSWORD,
+    );
+    expect(clientLogin.response.status).toBe(200);
+    const attemptedAt = nowInSeconds();
+    await database
+      .prepare(
+        `UPDATE agent_usage_thresholds
+         SET enabled = 1, request_limit = 1, suspension_duration_seconds = 3600
+         WHERE period = 'last_15_minutes'`,
+      )
+      .run();
+    await incrementAgentRequestAttempt(
+      database,
+      "client-auto-recovery",
+      "review",
+      attemptedAt - 1,
+    );
+    await expect(
+      incrementAgentRequestAttempt(
+        database,
+        "client-auto-recovery",
+        "rewrite",
+        attemptedAt,
+      ),
+    ).rejects.toMatchObject({ code: "ACCOUNT_TEMPORARILY_SUSPENDED" });
+
+    expect(
+      (
+        await currentSession(
+          getRequest("/api/auth/session", clientLogin.authentication.cookie),
+        )
+      ).status,
+    ).toBe(401);
+    const suspendedLogin = await loginResponse(
+      "auto-recovery@example.test",
+      CLIENT_PASSWORD,
+    );
+    expect(suspendedLogin.status).toBe(403);
+    expect(await suspendedLogin.json()).toMatchObject({
+      error: {
+        code: "ACCOUNT_SUSPENDED",
+        message:
+          "This account has been suspended. Please check your email for details.",
+      },
+    });
+
+    const recovered = await recoverClient("client-auto-recovery", employeeAuth);
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      account: { aiSuspension: null, manualSuspension: null },
+      audit: {
+        action: "recovered",
+        recoveredManualSuspension: false,
+        recoveredAutomaticSuspension: true,
+      },
+    });
+    expect(
+      (await loginResponse("auto-recovery@example.test", CLIENT_PASSWORD)).status,
+    ).toBe(200);
   });
 
   it("restricts, validates, persists, and audits automatic suspension thresholds", async () => {

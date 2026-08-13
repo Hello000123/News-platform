@@ -541,6 +541,18 @@ no environment variables. Migration
 `0020_configurable_agent_suspension_duration.sql` adds per-rule durations while
 preserving six hours as the default for existing configurations.
 
+Employees can also suspend an active client manually from the Client Accounts
+list. The required administrator reason is normalized, shown again at final
+confirmation, and emailed to the client. Manual suspension keeps the account
+and all related data, revokes every current session, and blocks later logins
+with `This account has been suspended. Please check your email for details.`
+Automatic usage suspension now revokes account access in the same way for its
+configured duration. A single **Recover account** confirmation clears either a
+manual suspension, an active automatic suspension, or both without changing
+the password or retained client data. Migration
+`0021_client_account_suspension_and_recovery.sql` adds manual state, audited
+suspension/recovery actions, and session-level enforcement.
+
 Passwords must contain 9–63 English keyboard characters. No uppercase,
 lowercase, number, symbol, or character-combination rule is imposed. Passwords
 use scrypt (`N=32768`, `r=8`, `p=3`) in the browser or employee CLI. D1 stores

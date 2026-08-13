@@ -16,6 +16,7 @@ export type AgentRequestKind = "review" | "rewrite";
 interface AgentSuspensionRow {
   role: "client" | "employee";
   status: "setup_pending" | "active" | "disabled";
+  manual_suspended_at: number | null;
   ai_suspension_id: string | null;
   ai_suspended_at: number | null;
   ai_suspended_until: number | null;
@@ -52,7 +53,7 @@ function temporarySuspensionError(row: AgentSuspensionRow) {
   ) {
     throw new AppError(
       "ACCOUNT_TEMPORARILY_SUSPENDED",
-      "This account is temporarily suspended from making AI requests.",
+      "This account is temporarily suspended.",
       429,
       { publicDetails: { retryable: false } },
     );
@@ -60,7 +61,7 @@ function temporarySuspensionError(row: AgentSuspensionRow) {
   const label = agentUsagePeriodLabel(period);
   throw new AppError(
     "ACCOUNT_TEMPORARILY_SUSPENDED",
-    `This account is temporarily suspended from making AI requests because ${observedCount.toLocaleString("en-US")} requests in ${label} exceeded the configured limit of ${threshold.toLocaleString("en-US")}. AI access resumes at ${formattedSuspensionExpiry(expiresAt)}.`,
+    `This account is temporarily suspended because ${observedCount.toLocaleString("en-US")} requests in ${label} exceeded the configured limit of ${threshold.toLocaleString("en-US")}. Account access resumes at ${formattedSuspensionExpiry(expiresAt)}.`,
     429,
     {
       publicDetails: {
@@ -75,12 +76,21 @@ function temporarySuspensionError(row: AgentSuspensionRow) {
   );
 }
 
+function accountSuspendedError(): never {
+  throw new AppError(
+    "ACCOUNT_SUSPENDED",
+    "This account has been suspended. Please check your email for details.",
+    403,
+  );
+}
+
 function getAgentSuspensionRow(database: D1Database, userId: string) {
   return database
     .prepare(
       `SELECT
          role,
          status,
+         manual_suspended_at,
          ai_suspension_id,
          ai_suspended_at,
          ai_suspended_until,
@@ -121,6 +131,12 @@ export async function incrementAgentRequestAttempt(
     const activeSuspension = await getAgentSuspensionRow(database, userId);
     if (
       activeSuspension?.role === "client" &&
+      activeSuspension.manual_suspended_at !== null
+    ) {
+      accountSuspendedError();
+    }
+    if (
+      activeSuspension?.role === "client" &&
       Number(activeSuspension.ai_suspended_until ?? 0) > attemptedAt
     ) {
       temporarySuspensionError(activeSuspension);
@@ -131,6 +147,9 @@ export async function incrementAgentRequestAttempt(
   const suspension = await getAgentSuspensionRow(database, userId);
   if (!suspension || suspension.status !== "active") {
     throw new AppError("AUTH_REQUIRED", "Sign in to continue.", 401);
+  }
+  if (suspension.role === "client" && suspension.manual_suspended_at !== null) {
+    accountSuspendedError();
   }
   if (
     suspension.role === "client" &&

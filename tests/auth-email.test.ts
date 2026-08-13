@@ -6,6 +6,7 @@ import {
   newAccountRequestEmail,
   rejectedAccountEmail,
   removedClientAccountEmail,
+  suspendedClientAccountEmail,
 } from "@/lib/server/auth/email";
 import type { AccountRequestView } from "@/lib/shared/auth-contracts";
 
@@ -102,6 +103,7 @@ describe("authentication email templates", () => {
         periodReviewRequestCount: 0,
         periodRewriteRequestCount: 0,
         aiSuspension: null,
+        manualSuspension: null,
       },
       'Access ended <img src=x onerror="alert(1)">\nContact the administrator.',
     );
@@ -118,6 +120,27 @@ describe("authentication email templates", () => {
     expect(removal.html).not.toContain("<img");
     expect(removal.text).not.toContain("password");
     expect(removal.text).not.toContain("session");
+  });
+
+  it("includes and escapes the administrator reason in the suspension email", () => {
+    const suspension = suspendedClientAccountEmail(
+      {
+        fullName: "Client <Person>",
+        email: "client@example.test",
+      },
+      'Ownership review <img src=x onerror="alert(1)">\nContact support.',
+    );
+
+    expect(suspension.to).toBe("client@example.test");
+    expect(suspension.messageType).toBe("client_suspended");
+    expect(suspension.text).toContain(
+      'Ownership review <img src=x onerror="alert(1)">\nContact support.',
+    );
+    expect(suspension.html).toContain("Client &lt;Person&gt;");
+    expect(suspension.html).toContain(
+      "Ownership review &lt;img src=x onerror=&quot;alert(1)&quot;&gt;<br>Contact support.",
+    );
+    expect(suspension.html).not.toContain("<img");
   });
 
   it("sends a Resend-compatible HTTP payload", async () => {

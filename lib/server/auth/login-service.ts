@@ -3,6 +3,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import {
   constantTimeEqualText,
   hmacSha256,
+  nowInSeconds,
   passwordDerivationFromHash,
   verifyPasswordProof,
   wrapLegacyPasswordHash,
@@ -130,6 +131,19 @@ export async function loginWithPasswordProof(
       "INVALID_CREDENTIALS",
       "The email address or password is incorrect.",
       401,
+    );
+  }
+
+  if (
+    user.role === "client" &&
+    (user.manual_suspended_at !== null ||
+      Number(user.ai_suspended_until ?? 0) > nowInSeconds())
+  ) {
+    await clearLoginFailures(database, email, request);
+    throw new AppError(
+      "ACCOUNT_SUSPENDED",
+      "This account has been suspended. Please check your email for details.",
+      403,
     );
   }
 

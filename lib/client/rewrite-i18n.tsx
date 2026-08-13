@@ -137,9 +137,9 @@ const EN_MESSAGES = {
   sessionExpired: "Your session has expired. Sign in again and retry.",
   forbidden: "You do not have permission to complete this request.",
   accountSuspended:
-    "Your account is temporarily suspended from AI requests because {observed} requests in {period} exceeded the configured limit of {threshold}. AI access resumes at {expiresAt}.",
+    "Your account is temporarily suspended because {observed} requests in {period} exceeded the configured limit of {threshold}. Account access resumes at {expiresAt}.",
   accountSuspendedGeneric:
-    "Your account is temporarily suspended from making AI requests. Check the expiry time and try again later.",
+    "Your account is temporarily suspended. Check the expiry time and try again later.",
   suspensionLast15Minutes: "the last 15 minutes",
   suspensionLast1Hour: "the last hour",
   suspensionLast6Hours: "the last 6 hours",

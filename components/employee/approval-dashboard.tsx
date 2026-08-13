@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ClientRemovalDialog } from "@/components/employee/client-removal-dialog";
+import {
+  ClientRecoveryDialog,
+  ClientSuspensionDialog,
+} from "@/components/employee/client-suspension-dialog";
 import { ClientOverview } from "@/components/employee/client-overview";
 import { FeedManagement } from "@/components/employee/feed-management";
 import {
@@ -121,6 +125,10 @@ export function ApprovalDashboard({
     message: string;
   } | null>(null);
   const [clientToRemove, setClientToRemove] =
+    useState<AccountListUserView | null>(null);
+  const [clientToSuspend, setClientToSuspend] =
+    useState<AccountListUserView | null>(null);
+  const [clientToRecover, setClientToRecover] =
     useState<AccountListUserView | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
@@ -336,6 +344,40 @@ export function ApprovalDashboard({
                 : `${client?.fullName || "The client"} was removed. Email preview mode recorded the notification without sending it externally.`,
           },
     );
+    setLoading(true);
+    setRefreshVersion((current) => current + 1);
+  }
+
+  function handleSuspended(delivery: EmailDeliveryView) {
+    const client = clientToSuspend;
+    setClientToSuspend(null);
+    setNotice(
+      delivery.status === "failed"
+        ? {
+            kind: "warning",
+            message:
+              `${client?.fullName || "The client"} can no longer access PressReady, ` +
+              "but the suspension email could not be delivered.",
+          }
+        : {
+            kind: "success",
+            message:
+              delivery.status === "sent"
+                ? `${client?.fullName || "The client"} was suspended and the reason was emailed.`
+                : `${client?.fullName || "The client"} was suspended. Email preview mode recorded the notification without sending it externally.`,
+          },
+    );
+    setLoading(true);
+    setRefreshVersion((current) => current + 1);
+  }
+
+  function handleRecovered() {
+    const client = clientToRecover;
+    setClientToRecover(null);
+    setNotice({
+      kind: "success",
+      message: `${client?.fullName || "The client"} was recovered and can sign in again.`,
+    });
     setLoading(true);
     setRefreshVersion((current) => current + 1);
   }
@@ -769,16 +811,37 @@ export function ApprovalDashboard({
                       )}
                     </h2>
                     <a href={`mailto:${account.email}`}>{account.email}</a>
-                    <span className={`status-badge status-${account.status}`}>
-                      {account.status === "setup_pending"
-                        ? "Setup pending"
-                        : account.status}
+                    <span
+                      className={`status-badge ${
+                        account.manualSuspension || account.aiSuspension
+                          ? "status-suspended"
+                          : `status-${account.status}`
+                      }`}
+                    >
+                      {account.manualSuspension || account.aiSuspension
+                        ? "Suspended"
+                        : account.status === "setup_pending"
+                          ? "Setup pending"
+                          : account.status}
                     </span>
+                    {activeTab === "clients" && account.manualSuspension ? (
+                      <div className="admin-account-suspension" role="note">
+                        <strong>Account manually suspended</strong>
+                        <span>
+                          Suspended {formattedSuspensionDate(account.manualSuspension.startedAt)}
+                          {account.manualSuspension.suspendedBy
+                            ? ` by ${account.manualSuspension.suspendedBy.fullName}`
+                            : ""}
+                        </span>
+                        <p>{account.manualSuspension.reason}</p>
+                      </div>
+                    ) : null}
                     {activeTab === "clients" && account.aiSuspension ? (
                       <div className="admin-account-suspension" role="note">
-                        <strong>AI requests temporarily suspended</strong>
+                        <strong>Account automatically suspended</strong>
                         <span>
-                          Access resumes {formattedSuspensionDate(account.aiSuspension.expiresAt)}
+                          Automatically recovers{" "}
+                          {formattedSuspensionDate(account.aiSuspension.expiresAt)}
                         </span>
                         <p>
                           {account.aiSuspension.observedRequestCount.toLocaleString("en-US")} AI
@@ -829,16 +892,41 @@ export function ApprovalDashboard({
                     ) : null}
                   </div>
                   {activeTab === "clients" ? (
-                    <button
-                      className="button button-danger"
-                      type="button"
-                      onClick={() => {
-                        setNotice(null);
-                        setClientToRemove(account);
-                      }}
-                    >
-                      Remove account
-                    </button>
+                    <div className="admin-account-actions">
+                      {account.manualSuspension || account.aiSuspension ? (
+                        <button
+                          className="button button-primary"
+                          type="button"
+                          onClick={() => {
+                            setNotice(null);
+                            setClientToRecover(account);
+                          }}
+                        >
+                          Recover account
+                        </button>
+                      ) : account.status === "active" ? (
+                        <button
+                          className="button button-warning"
+                          type="button"
+                          onClick={() => {
+                            setNotice(null);
+                            setClientToSuspend(account);
+                          }}
+                        >
+                          Suspend client
+                        </button>
+                      ) : null}
+                      <button
+                        className="button button-danger"
+                        type="button"
+                        onClick={() => {
+                          setNotice(null);
+                          setClientToRemove(account);
+                        }}
+                      >
+                        Remove account
+                      </button>
+                    </div>
                   ) : null}
                 </article>
               ))}
@@ -852,6 +940,20 @@ export function ApprovalDashboard({
           client={clientToRemove}
           onCancel={() => setClientToRemove(null)}
           onRemoved={({ emailDelivery }) => handleRemoved(emailDelivery)}
+        />
+      ) : null}
+      {clientToSuspend ? (
+        <ClientSuspensionDialog
+          client={clientToSuspend}
+          onCancel={() => setClientToSuspend(null)}
+          onSuspended={({ emailDelivery }) => handleSuspended(emailDelivery)}
+        />
+      ) : null}
+      {clientToRecover ? (
+        <ClientRecoveryDialog
+          client={clientToRecover}
+          onCancel={() => setClientToRecover(null)}
+          onRecovered={handleRecovered}
         />
       ) : null}
     </section>

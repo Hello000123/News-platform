@@ -290,7 +290,7 @@ describe("review and rewrite API routes", () => {
     vi.mocked(recordAgentRequestAttempt).mockRejectedValueOnce(
       new AppError(
         "ACCOUNT_TEMPORARILY_SUSPENDED",
-        "This account is temporarily suspended from making AI requests.",
+        "This account is temporarily suspended.",
         429,
         {
           publicDetails: {
@@ -316,7 +316,7 @@ describe("review and rewrite API routes", () => {
     expect(await response.json()).toEqual({
       error: {
         code: "ACCOUNT_TEMPORARILY_SUSPENDED",
-        message: "This account is temporarily suspended from making AI requests.",
+        message: "This account is temporarily suspended.",
         retryable: false,
         suspensionStartedAt: 1_800_000_000,
         suspensionExpiresAt: 1_800_021_600,

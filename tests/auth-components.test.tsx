@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   generateEmployeeClientSummary: vi.fn(),
   getEmployeeClientOverview: vi.fn(),
   removeClientAccount: vi.fn(),
+  suspendClientAccount: vi.fn(),
+  recoverClientAccount: vi.fn(),
   submitAccountRequest: vi.fn(),
   decideAccountRequest: vi.fn(),
   resendSetupEmail: vi.fn(),
@@ -45,6 +47,8 @@ vi.mock("@/lib/client/auth-api", () => ({
   generateEmployeeClientSummary: mocks.generateEmployeeClientSummary,
   getEmployeeClientOverview: mocks.getEmployeeClientOverview,
   removeClientAccount: mocks.removeClientAccount,
+  suspendClientAccount: mocks.suspendClientAccount,
+  recoverClientAccount: mocks.recoverClientAccount,
   decideAccountRequest: mocks.decideAccountRequest,
   resendSetupEmail: mocks.resendSetupEmail,
 }));
@@ -455,6 +459,7 @@ describe("account request and employee summary UI", () => {
             configuredThreshold: 3,
             observedRequestCount: 4,
           },
+          manualSuspension: null,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
@@ -476,9 +481,15 @@ describe("account request and employee summary UI", () => {
       await screen.findByRole("heading", { name: "Automatic AI usage suspension" }),
     ).toBeTruthy();
     expect(screen.getAllByRole("spinbutton")).toHaveLength(10);
-    expect(screen.getByText("AI requests temporarily suspended")).toBeTruthy();
-    expect(screen.getByText(/Access resumes/u).textContent).toMatch(/HKT|GMT\+8/u);
+    expect(screen.getByText("Account automatically suspended")).toBeTruthy();
+    expect(screen.getByText(/Automatically recovers/u).textContent).toMatch(
+      /HKT|GMT\+8/u,
+    );
     expect(screen.getByText(/4 AI requests in Last 15 minutes/u)).toBeTruthy();
+    const recoverButton = screen.getByRole("button", { name: "Recover account" });
+    const removeButton = screen.getByRole("button", { name: "Remove account" });
+    expect(recoverButton.parentElement?.firstElementChild).toBe(recoverButton);
+    expect(recoverButton.parentElement).toBe(removeButton.parentElement);
 
     await user.click(screen.getAllByRole("checkbox")[0]);
     const firstThreshold = document.querySelector(
@@ -525,6 +536,7 @@ describe("account request and employee summary UI", () => {
           periodReviewRequestCount: 0,
           periodRewriteRequestCount: 0,
           aiSuspension: null,
+          manualSuspension: null,
         },
         {
           id: "client-two",
@@ -539,6 +551,7 @@ describe("account request and employee summary UI", () => {
           periodReviewRequestCount: 0,
           periodRewriteRequestCount: 0,
           aiSuspension: null,
+          manualSuspension: null,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 2 },

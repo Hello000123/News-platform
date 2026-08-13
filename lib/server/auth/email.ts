@@ -13,7 +13,12 @@ interface EmailMessage {
   subject: string;
   text: string;
   html: string;
-  messageType: "new_request" | "approved_setup" | "rejected" | "client_removed";
+  messageType:
+    | "new_request"
+    | "approved_setup"
+    | "rejected"
+    | "client_removed"
+    | "client_suspended";
   sensitiveUrl?: string;
 }
 
@@ -168,6 +173,28 @@ export function removedClientAccountEmail(
       "<p>Your PressReady account has been removed and access has been revoked.</p>" +
       "<p><strong>Message from the administrator:</strong></p>" +
       `<p>${escapeHtml(removalMessage).replace(/\n/gu, "<br>")}</p>` +
+      "<p>Contact the organisation if you need further assistance.</p>",
+  };
+}
+
+export function suspendedClientAccountEmail(
+  client: Pick<AccountListUserView, "email" | "fullName">,
+  reason: string,
+): EmailMessage {
+  return {
+    to: client.email,
+    subject: "Your PressReady account has been suspended",
+    messageType: "client_suspended",
+    text:
+      `Hello ${client.fullName},\n\n` +
+      "Your PressReady account has been suspended. You cannot sign in until an administrator recovers the account.\n\n" +
+      `Reason from the administrator:\n${reason}\n\n` +
+      "Contact the organisation if you need further assistance.",
+    html:
+      `<p>Hello ${escapeHtml(client.fullName)},</p>` +
+      "<p>Your PressReady account has been suspended. You cannot sign in until an administrator recovers the account.</p>" +
+      "<p><strong>Reason from the administrator:</strong></p>" +
+      `<p>${escapeHtml(reason).replace(/\n/gu, "<br>")}</p>` +
       "<p>Contact the organisation if you need further assistance.</p>",
   };
 }

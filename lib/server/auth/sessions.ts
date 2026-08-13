@@ -160,9 +160,14 @@ export async function findSessionByRawToken(
          AND session.expires_at > ?
          AND user.status = 'active'
          AND user.password_hash IS NOT NULL
+         AND user.manual_suspended_at IS NULL
+         AND (
+           user.ai_suspended_until IS NULL OR
+           user.ai_suspended_until <= ?
+         )
        LIMIT 1`,
     )
-    .bind(tokenHash, now)
+    .bind(tokenHash, now, now)
     .first<SessionRow>();
 
   if (!row) {

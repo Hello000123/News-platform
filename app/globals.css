@@ -2308,6 +2308,17 @@ footer p {
   background: var(--red-soft);
 }
 
+.button-warning {
+  border-color: #e5c16f;
+  background: var(--amber-soft);
+  color: #77520a;
+}
+
+.button-warning:hover:not(:disabled) {
+  border-color: var(--amber);
+  background: #fff1c7;
+}
+
 .employee-page {
   min-height: calc(100vh - 70px);
   padding: 48px 20px 80px;
@@ -2984,6 +2995,13 @@ footer p {
   gap: 5px 10px;
 }
 
+.admin-account-row > .admin-account-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .admin-account-row h2 {
   min-width: 0;
   margin: 0;
@@ -3089,6 +3107,11 @@ footer p {
 .status-setup_pending {
   background: var(--amber-soft);
   color: var(--amber);
+}
+
+.status-suspended {
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .admin-dialog-backdrop {
@@ -3533,6 +3556,12 @@ footer p {
   .employee-request-row .button,
   .admin-account-row .button {
     width: 100%;
+  }
+
+  .admin-account-row > .admin-account-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .admin-account-usage {

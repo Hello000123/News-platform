@@ -11,6 +11,8 @@ import type {
   AuthenticatedUser,
   ClientRemovalAuditView,
   ClientRemovalInput,
+  ClientSuspensionAuditView,
+  ClientSuspensionInput,
   EmailDeliveryView,
   LoginInput,
   PasswordDerivation,
@@ -270,6 +272,29 @@ export function removeClientAccount(id: string, input: ClientRemovalInput) {
   }>(
     `/api/employee/accounts/${encodeURIComponent(id)}/remove`,
     input,
+    true,
+  );
+}
+
+export function suspendClientAccount(id: string, input: ClientSuspensionInput) {
+  return postJson<{
+    account: AccountListUserView;
+    audit: ClientSuspensionAuditView;
+    emailDelivery: EmailDeliveryView;
+  }>(
+    `/api/employee/accounts/${encodeURIComponent(id)}/suspend`,
+    input,
+    true,
+  );
+}
+
+export function recoverClientAccount(id: string) {
+  return postJson<{
+    account: AccountListUserView;
+    audit: ClientSuspensionAuditView;
+  }>(
+    `/api/employee/accounts/${encodeURIComponent(id)}/recover`,
+    {},
     true,
   );
 }

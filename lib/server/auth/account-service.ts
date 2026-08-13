@@ -17,6 +17,7 @@ import {
   newAccountRequestEmail,
   rejectedAccountEmail,
   removedClientAccountEmail,
+  suspendedClientAccountEmail,
   type EmailDeliveryResult,
 } from "@/lib/server/auth/email";
 import {
@@ -43,6 +44,7 @@ import type {
   AccountRequestView,
   AuthenticatedUser,
   ClientRemovalAuditView,
+  ClientSuspensionAuditView,
   PasswordDerivation,
 } from "@/lib/shared/auth-contracts";
 import {
@@ -551,6 +553,246 @@ export async function removeClientAccount(
     createdAt: now,
   };
   return { client, audit, delivery };
+}
+
+async function updateClientSuspensionEmailStatus(
+  database: D1Database,
+  auditId: string,
+  delivery: EmailDeliveryResult,
+) {
+  await database
+    .prepare(
+      `UPDATE client_account_suspension_audit_records
+       SET email_status = ?, provider_message_id = ?, email_error_code = ?
+       WHERE id = ? AND action = 'manual_suspended'`,
+    )
+    .bind(
+      delivery.status,
+      delivery.providerMessageId ?? null,
+      delivery.errorCode ?? null,
+      auditId,
+    )
+    .run();
+}
+
+export async function suspendClientAccount(
+  database: D1Database,
+  clientId: string,
+  employee: AuthenticatedUser,
+  reason: string,
+) {
+  assertEmployee(employee);
+  const client = await getActiveClientAccount(database, clientId);
+  if (!client || client.status !== "active") {
+    throw new AppError(
+      "CLIENT_ACCOUNT_NOT_FOUND",
+      "The active client account could not be found.",
+      404,
+    );
+  }
+  if (client.manualSuspension || client.aiSuspension) {
+    throw new AppError(
+      "CLIENT_ACCOUNT_ALREADY_SUSPENDED",
+      "The client account is already suspended.",
+      409,
+    );
+  }
+
+  const auditId = createId();
+  const now = nowInSeconds();
+  const results = await database.batch([
+    database
+      .prepare(
+        `INSERT INTO client_account_suspension_audit_records (
+           id, client_user_id, actor_user_id, action, reason, created_at,
+           email_status
+         )
+         SELECT ?, id, ?, 'manual_suspended', ?, ?, 'pending'
+         FROM users
+         WHERE id = ?
+           AND role = 'client'
+           AND status = 'active'
+           AND manual_suspended_at IS NULL
+           AND (ai_suspended_until IS NULL OR ai_suspended_until <= ?)`,
+      )
+      .bind(auditId, employee.id, reason, now, clientId, now),
+    database
+      .prepare(
+        `UPDATE users
+         SET manual_suspended_at = ?,
+             manual_suspension_reason = ?,
+             manual_suspended_by_user_id = ?,
+             updated_at = ?
+         WHERE id = ?
+           AND role = 'client'
+           AND status = 'active'
+           AND manual_suspended_at IS NULL
+           AND (ai_suspended_until IS NULL OR ai_suspended_until <= ?)
+           AND EXISTS (
+             SELECT 1
+             FROM client_account_suspension_audit_records
+             WHERE id = ? AND client_user_id = users.id
+           )`,
+      )
+      .bind(now, reason, employee.id, now, clientId, now, auditId),
+    database
+      .prepare(
+        `UPDATE sessions
+         SET revoked_at = ?
+         WHERE user_id = ?
+           AND revoked_at IS NULL
+           AND EXISTS (
+             SELECT 1
+             FROM client_account_suspension_audit_records
+             WHERE id = ? AND client_user_id = sessions.user_id
+           )`,
+      )
+      .bind(now, clientId, auditId),
+  ]);
+  if (changed(results[0]) !== 1 || changed(results[1]) !== 1) {
+    throw new AppError(
+      "CLIENT_ACCOUNT_ALREADY_SUSPENDED",
+      "The client account is already suspended.",
+      409,
+    );
+  }
+
+  const delivery = await deliverEmail(
+    suspendedClientAccountEmail(client, reason),
+  );
+  try {
+    await updateClientSuspensionEmailStatus(database, auditId, delivery);
+  } catch (error) {
+    console.error("[auth-client-suspension] Delivery status update failed.", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+  }
+
+  const suspendedClient = await getActiveClientAccount(database, clientId);
+  if (!suspendedClient?.manualSuspension) {
+    throw new AppError(
+      "CLIENT_SUSPENSION_STATE_UNAVAILABLE",
+      "The client was suspended, but the updated account state could not be loaded.",
+      500,
+    );
+  }
+  const audit: ClientSuspensionAuditView = {
+    id: auditId,
+    clientAccountId: clientId,
+    administratorAccountId: employee.id,
+    action: "manual_suspended",
+    reason,
+    recoveredManualSuspension: false,
+    recoveredAutomaticSuspension: false,
+    createdAt: now,
+  };
+  return { client: suspendedClient, audit, delivery };
+}
+
+export async function recoverClientAccount(
+  database: D1Database,
+  clientId: string,
+  employee: AuthenticatedUser,
+) {
+  assertEmployee(employee);
+  const client = await getActiveClientAccount(database, clientId);
+  if (!client || client.status !== "active") {
+    throw new AppError(
+      "CLIENT_ACCOUNT_NOT_FOUND",
+      "The active client account could not be found.",
+      404,
+    );
+  }
+  if (!client.manualSuspension && !client.aiSuspension) {
+    throw new AppError(
+      "CLIENT_ACCOUNT_NOT_SUSPENDED",
+      "The client account is not currently suspended.",
+      409,
+    );
+  }
+
+  const auditId = createId();
+  const now = nowInSeconds();
+  const results = await database.batch([
+    database
+      .prepare(
+        `INSERT INTO client_account_suspension_audit_records (
+           id, client_user_id, actor_user_id, action, reason,
+           recovered_manual_suspension, recovered_automatic_suspension,
+           created_at, email_status
+         )
+         SELECT ?, id, ?, 'recovered', NULL,
+                CASE WHEN manual_suspended_at IS NOT NULL THEN 1 ELSE 0 END,
+                CASE WHEN ai_suspended_until > ? THEN 1 ELSE 0 END,
+                ?, 'not_attempted'
+         FROM users
+         WHERE id = ?
+           AND role = 'client'
+           AND status = 'active'
+           AND (
+             manual_suspended_at IS NOT NULL OR
+             ai_suspended_until > ?
+           )`,
+      )
+      .bind(auditId, employee.id, now, now, clientId, now),
+    database
+      .prepare(
+        `UPDATE users
+         SET manual_suspended_at = NULL,
+             manual_suspension_reason = NULL,
+             manual_suspended_by_user_id = NULL,
+             ai_suspension_id = NULL,
+             ai_suspended_at = NULL,
+             ai_suspended_until = NULL,
+             ai_suspension_period = NULL,
+             ai_suspension_threshold = NULL,
+             ai_suspension_observed_count = NULL,
+             updated_at = ?
+         WHERE id = ?
+           AND role = 'client'
+           AND status = 'active'
+           AND EXISTS (
+             SELECT 1
+             FROM client_account_suspension_audit_records
+             WHERE id = ? AND client_user_id = users.id
+           )`,
+      )
+      .bind(now, clientId, auditId),
+    database
+      .prepare(
+        `UPDATE sessions
+         SET revoked_at = ?
+         WHERE user_id = ? AND revoked_at IS NULL`,
+      )
+      .bind(now, clientId),
+  ]);
+  if (changed(results[0]) !== 1 || changed(results[1]) !== 1) {
+    throw new AppError(
+      "CLIENT_ACCOUNT_NOT_SUSPENDED",
+      "The client account is not currently suspended.",
+      409,
+    );
+  }
+
+  const recoveredClient = await getActiveClientAccount(database, clientId);
+  if (!recoveredClient) {
+    throw new AppError(
+      "CLIENT_RECOVERY_STATE_UNAVAILABLE",
+      "The client was recovered, but the updated account state could not be loaded.",
+      500,
+    );
+  }
+  const audit: ClientSuspensionAuditView = {
+    id: auditId,
+    clientAccountId: clientId,
+    administratorAccountId: employee.id,
+    action: "recovered",
+    reason: null,
+    recoveredManualSuspension: Boolean(client.manualSuspension),
+    recoveredAutomaticSuspension: Boolean(client.aiSuspension),
+    createdAt: now,
+  };
+  return { client: recoveredClient, audit };
 }
 
 export async function inspectPasswordSetupToken(database: D1Database, rawToken: string) {

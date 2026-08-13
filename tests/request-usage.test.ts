@@ -66,10 +66,20 @@ describe("per-user agent request usage", () => {
         new URL("../migrations/0017_configurable_agent_usage_suspensions.sql", import.meta.url),
         "utf8",
       );
+      const durationMigration = await readFile(
+        new URL("../migrations/0020_configurable_agent_suspension_duration.sql", import.meta.url),
+        "utf8",
+      );
+      const accountSuspensionMigration = await readFile(
+        new URL("../migrations/0021_client_account_suspension_and_recovery.sql", import.meta.url),
+        "utf8",
+      );
       await executeSqlScript(database, initial);
       await executeSqlScript(database, usageMigration);
       await executeSqlScript(database, eventMigration);
       await executeSqlScript(database, suspensionMigration);
+      await executeSqlScript(database, durationMigration);
+      await executeSqlScript(database, accountSuspensionMigration);
 
       const now = 1_700_000_000;
       await database

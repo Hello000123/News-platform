@@ -76,6 +76,11 @@ interface AccountListUserRow {
   ai_suspension_period?: string | null;
   ai_suspension_threshold?: number | null;
   ai_suspension_observed_count?: number | null;
+  manual_suspended_at?: number | null;
+  manual_suspension_reason?: string | null;
+  manual_suspended_by_user_id?: string | null;
+  manual_suspended_by_full_name?: string | null;
+  manual_suspended_by_email?: string | null;
 }
 
 export interface UserAuthRow {
@@ -85,6 +90,8 @@ export interface UserAuthRow {
   password_hash: string | null;
   role: UserRole;
   status: UserStatus;
+  ai_suspended_until: number | null;
+  manual_suspended_at: number | null;
 }
 
 export interface SetupTokenRow {
@@ -170,6 +177,25 @@ function mapAccountListUser(
           observedRequestCount: Number(row.ai_suspension_observed_count),
         }
       : null,
+    manualSuspension:
+      Number.isInteger(Number(row.manual_suspended_at)) &&
+      Number(row.manual_suspended_at) >= 0 &&
+      Boolean(row.manual_suspension_reason)
+        ? {
+            startedAt: Number(row.manual_suspended_at),
+            reason: row.manual_suspension_reason as string,
+            suspendedBy:
+              row.manual_suspended_by_user_id &&
+              row.manual_suspended_by_full_name &&
+              row.manual_suspended_by_email
+                ? {
+                    id: row.manual_suspended_by_user_id,
+                    fullName: row.manual_suspended_by_full_name,
+                    email: row.manual_suspended_by_email,
+                  }
+                : null,
+          }
+        : null,
   };
 }
 
@@ -464,6 +490,11 @@ export async function listUserAccounts(
        account.ai_suspension_period,
        account.ai_suspension_threshold,
        account.ai_suspension_observed_count,
+       account.manual_suspended_at,
+       account.manual_suspension_reason,
+       account.manual_suspended_by_user_id,
+       suspender.full_name AS manual_suspended_by_full_name,
+       suspender.email AS manual_suspended_by_email,
        COALESCE(usage.review_request_count, 0) AS review_request_count,
        COALESCE(usage.rewrite_request_count, 0) AS rewrite_request_count,
        ${periodRequestCount} AS period_request_count,
@@ -471,6 +502,8 @@ export async function listUserAccounts(
        ${periodRewriteRequestCount} AS period_rewrite_request_count
      FROM users AS account
      LEFT JOIN agent_request_usage AS usage ON usage.user_id = account.id
+     LEFT JOIN users AS suspender
+       ON suspender.id = account.manual_suspended_by_user_id
      ${periodUsageJoin}
      WHERE account.role = ? AND account.status <> 'disabled'
      ORDER BY account.full_name COLLATE NOCASE, account.email COLLATE NOCASE
@@ -490,20 +523,29 @@ export async function getActiveClientAccount(
   const row = await database
     .prepare(
       `SELECT
-         id,
-         email,
-         full_name,
-         role,
-         status,
-         created_at,
-         ai_suspension_id,
-         ai_suspended_at,
-         ai_suspended_until,
-         ai_suspension_period,
-         ai_suspension_threshold,
-         ai_suspension_observed_count
-       FROM users
-       WHERE id = ? AND role = 'client' AND status <> 'disabled'
+         account.id,
+         account.email,
+         account.full_name,
+         account.role,
+         account.status,
+         account.created_at,
+         account.ai_suspension_id,
+         account.ai_suspended_at,
+         account.ai_suspended_until,
+         account.ai_suspension_period,
+         account.ai_suspension_threshold,
+         account.ai_suspension_observed_count,
+         account.manual_suspended_at,
+         account.manual_suspension_reason,
+         account.manual_suspended_by_user_id,
+         suspender.full_name AS manual_suspended_by_full_name,
+         suspender.email AS manual_suspended_by_email
+       FROM users AS account
+       LEFT JOIN users AS suspender
+         ON suspender.id = account.manual_suspended_by_user_id
+       WHERE account.id = ?
+         AND account.role = 'client'
+         AND account.status <> 'disabled'
        LIMIT 1`,
     )
     .bind(id)
@@ -538,7 +580,8 @@ export async function updateClientRemovalEmailStatus(
 export function getUserByEmail(database: D1Database, email: string) {
   return database
     .prepare(
-      `SELECT id, email, full_name, password_hash, role, status
+      `SELECT id, email, full_name, password_hash, role, status,
+              ai_suspended_until, manual_suspended_at
        FROM users
        WHERE email = ? COLLATE NOCASE
        LIMIT 1`,
