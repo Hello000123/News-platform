@@ -13,8 +13,6 @@ import type { AgentUsagePeriodView } from "@/lib/shared/auth-contracts";
 
 export type AgentRequestKind = "review" | "rewrite";
 
-export const AGENT_USAGE_SUSPENSION_SECONDS = 6 * 60 * 60;
-
 interface AgentSuspensionRow {
   role: "client" | "employee";
   status: "setup_pending" | "active" | "disabled";

@@ -59,6 +59,7 @@ const thresholdRules = [
   ...rule,
   enabled: false,
   threshold: 100,
+  suspensionHours: 6,
   updatedAt: 1_800_000_000,
   updatedBy: null,
 }));
@@ -88,7 +89,16 @@ beforeEach(() => {
     rules: thresholdRules.map((rule) => ({ ...rule })),
   });
   mocks.updateEmployeeAgentUsageThresholds.mockImplementation(
-    async ({ rules }: { rules: Array<{ period: string; enabled: boolean; threshold: number }> }) => ({
+    async ({
+      rules,
+    }: {
+      rules: Array<{
+        period: string;
+        enabled: boolean;
+        threshold: number;
+        suspensionHours: number;
+      }>;
+    }) => ({
       rules: thresholdRules.map((rule) => ({
         ...rule,
         ...rules.find(({ period }) => period === rule.period),
@@ -463,9 +473,9 @@ describe("account request and employee summary UI", () => {
     await user.click(await screen.findByRole("tab", { name: "Client Accounts" }));
 
     expect(
-      await screen.findByRole("heading", { name: "Six-hour AI usage suspension" }),
+      await screen.findByRole("heading", { name: "Automatic AI usage suspension" }),
     ).toBeTruthy();
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(5);
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(10);
     expect(screen.getByText("AI requests temporarily suspended")).toBeTruthy();
     expect(screen.getByText(/Access resumes/u).textContent).toMatch(/HKT|GMT\+8/u);
     expect(screen.getByText(/4 AI requests in Last 15 minutes/u)).toBeTruthy();
@@ -476,6 +486,11 @@ describe("account request and employee summary UI", () => {
     ) as HTMLInputElement;
     await user.clear(firstThreshold);
     await user.type(firstThreshold, "3");
+    const firstSuspensionTime = document.querySelector(
+      "#agent-suspension-hours-last_15_minutes",
+    ) as HTMLInputElement;
+    await user.clear(firstSuspensionTime);
+    await user.type(firstSuspensionTime, "1.25");
     await user.click(screen.getByRole("button", { name: "Save thresholds" }));
 
     expect(mocks.updateEmployeeAgentUsageThresholds).toHaveBeenCalledWith({
@@ -484,6 +499,7 @@ describe("account request and employee summary UI", () => {
           period: "last_15_minutes",
           enabled: true,
           threshold: 3,
+          suspensionHours: 1.25,
         },
       ]),
     });

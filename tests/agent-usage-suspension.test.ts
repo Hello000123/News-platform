@@ -11,10 +11,7 @@ import {
 } from "vitest";
 
 import { listUserAccounts } from "@/lib/server/auth/repository";
-import {
-  AGENT_USAGE_SUSPENSION_SECONDS,
-  incrementAgentRequestAttempt,
-} from "@/lib/server/auth/request-usage";
+import { incrementAgentRequestAttempt } from "@/lib/server/auth/request-usage";
 
 async function executeSqlScript(database: D1Database, sql: string) {
   let pending = "";
@@ -63,6 +60,7 @@ describe("automatic AI usage suspension", () => {
       "0005_agent_request_usage.sql",
       "0016_timestamped_agent_request_events.sql",
       "0017_configurable_agent_usage_suspensions.sql",
+      "0020_configurable_agent_suspension_duration.sql",
     ]) {
       await executeSqlScript(
         database,
@@ -91,19 +89,28 @@ describe("automatic AI usage suspension", () => {
     period: string,
     enabled: boolean,
     threshold: number,
+    suspensionHours = 6,
   ) {
     await database
       .prepare(
         `UPDATE agent_usage_thresholds
-         SET enabled = ?, request_limit = ?, updated_at = ?
+         SET enabled = ?, request_limit = ?, suspension_duration_seconds = ?,
+             updated_at = ?
          WHERE period = ?`,
       )
-      .bind(enabled ? 1 : 0, threshold, now, period)
+      .bind(
+        enabled ? 1 : 0,
+        threshold,
+        Math.round(suspensionHours * 60 * 60),
+        now,
+        period,
+      )
       .run();
   }
 
   it("allows the configured number, suspends on the exceeding attempt, and never extends an active expiry", async () => {
-    await configure("last_15_minutes", true, 3);
+    const suspensionSeconds = 1.25 * 60 * 60;
+    await configure("last_15_minutes", true, 3, 1.25);
 
     await incrementAgentRequestAttempt(database, "client-boundary", "review", now - 3);
     await incrementAgentRequestAttempt(database, "client-boundary", "rewrite", now - 2);
@@ -117,7 +124,7 @@ describe("automatic AI usage suspension", () => {
       publicDetails: {
         retryable: false,
         suspensionStartedAt: now,
-        suspensionExpiresAt: now + AGENT_USAGE_SUSPENSION_SECONDS,
+        suspensionExpiresAt: now + suspensionSeconds,
         suspensionPeriod: "last_15_minutes",
         suspensionThreshold: 3,
         suspensionObservedCount: 4,
@@ -139,7 +146,7 @@ describe("automatic AI usage suspension", () => {
       .first<Record<string, unknown>>();
     expect(firstSuspension).toMatchObject({
       ai_suspended_at: now,
-      ai_suspended_until: now + AGENT_USAGE_SUSPENSION_SECONDS,
+      ai_suspended_until: now + suspensionSeconds,
       ai_suspension_period: "last_15_minutes",
       ai_suspension_threshold: 3,
       ai_suspension_observed_count: 4,
@@ -150,7 +157,7 @@ describe("automatic AI usage suspension", () => {
     expect(activeAccount?.aiSuspension).toMatchObject({
       id: firstSuspension?.ai_suspension_id,
       startedAt: now,
-      expiresAt: now + AGENT_USAGE_SUSPENSION_SECONDS,
+      expiresAt: now + suspensionSeconds,
       triggeredPeriod: "last_15_minutes",
       periodLabel: "Last 15 minutes",
       configuredThreshold: 3,
@@ -162,7 +169,7 @@ describe("automatic AI usage suspension", () => {
     ).rejects.toMatchObject({
       code: "ACCOUNT_TEMPORARILY_SUSPENDED",
       publicDetails: {
-        suspensionExpiresAt: now + AGENT_USAGE_SUSPENSION_SECONDS,
+        suspensionExpiresAt: now + suspensionSeconds,
       },
     });
     expect(
@@ -189,11 +196,11 @@ describe("automatic AI usage suspension", () => {
         database,
         "client-boundary",
         "review",
-        now + AGENT_USAGE_SUSPENSION_SECONDS,
+        now + suspensionSeconds,
       ),
     ).resolves.toBeUndefined();
     const accounts = await listUserAccounts(database, "client", {
-      nowSeconds: now + AGENT_USAGE_SUSPENSION_SECONDS,
+      nowSeconds: now + suspensionSeconds,
     });
     expect(accounts.find(({ id }) => id === "client-boundary")?.aiSuspension).toBeNull();
   });
@@ -218,8 +225,8 @@ describe("automatic AI usage suspension", () => {
   });
 
   it("chooses the shortest breached period when enabled rules overlap", async () => {
-    await configure("last_15_minutes", true, 1);
-    await configure("last_1_hour", true, 1);
+    await configure("last_15_minutes", true, 1, 0.5);
+    await configure("last_1_hour", true, 1, 2.75);
     await incrementAgentRequestAttempt(database, "client-overlap", "review", now - 1);
 
     await expect(
@@ -229,6 +236,7 @@ describe("automatic AI usage suspension", () => {
         suspensionPeriod: "last_15_minutes",
         suspensionThreshold: 1,
         suspensionObservedCount: 2,
+        suspensionExpiresAt: now + 30 * 60,
       },
     });
   });

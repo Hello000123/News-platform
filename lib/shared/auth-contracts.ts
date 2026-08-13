@@ -27,6 +27,8 @@ export const SCRYPT_COST = 32_768;
 export const SCRYPT_BLOCK_SIZE = 8;
 export const SCRYPT_PARALLELIZATION = 3;
 export const AGENT_USAGE_THRESHOLD_MAX = 1_000_000;
+export const AGENT_SUSPENSION_HOURS_MIN = 0.01;
+export const AGENT_SUSPENSION_HOURS_MAX = 8_760;
 
 const agentSuspensionPeriodSchema = z.enum([
   "last_15_minutes",
@@ -51,6 +53,20 @@ export const agentUsageThresholdUpdateSchema = z
               .max(
                 AGENT_USAGE_THRESHOLD_MAX,
                 `Each threshold must not exceed ${AGENT_USAGE_THRESHOLD_MAX.toLocaleString()} requests.`,
+              ),
+            suspensionHours: z
+              .number()
+              .min(
+                AGENT_SUSPENSION_HOURS_MIN,
+                `Suspension time must be at least ${AGENT_SUSPENSION_HOURS_MIN} hours.`,
+              )
+              .max(
+                AGENT_SUSPENSION_HOURS_MAX,
+                `Suspension time must not exceed ${AGENT_SUSPENSION_HOURS_MAX.toLocaleString()} hours.`,
+              )
+              .multipleOf(
+                0.01,
+                "Suspension time can use up to two decimal places.",
               ),
           })
           .strict(),
@@ -426,6 +442,7 @@ export interface AgentUsageThresholdRuleView {
   label: string;
   enabled: boolean;
   threshold: number;
+  suspensionHours: number;
   updatedAt: number;
   updatedBy: {
     id: string;

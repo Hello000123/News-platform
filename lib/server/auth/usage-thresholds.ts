@@ -15,6 +15,7 @@ interface AgentUsageThresholdRow {
   period: string;
   enabled: number;
   request_limit: number;
+  suspension_duration_seconds: number;
   updated_at: number;
   updated_by_user_id: string | null;
   updated_by_full_name: string | null;
@@ -30,6 +31,7 @@ export async function listAgentUsageThresholds(
          threshold.period,
          threshold.enabled,
          threshold.request_limit,
+         threshold.suspension_duration_seconds,
          threshold.updated_at,
          threshold.updated_by_user_id,
          actor.full_name AS updated_by_full_name,
@@ -58,6 +60,7 @@ export async function listAgentUsageThresholds(
       label,
       enabled: row.enabled === 1,
       threshold: Number(row.request_limit),
+      suspensionHours: Number(row.suspension_duration_seconds) / (60 * 60),
       updatedAt: Number(row.updated_at),
       updatedBy:
         row.updated_by_user_id &&
@@ -112,6 +115,9 @@ export async function updateAgentUsageThresholds(
       );
     }
     const enabled = rule.enabled ? 1 : 0;
+    const suspensionDurationSeconds = Math.round(
+      rule.suspensionHours * 60 * 60,
+    );
     return [
       database
         .prepare(
@@ -121,35 +127,52 @@ export async function updateAgentUsageThresholds(
              actor_user_id,
              previous_enabled,
              previous_request_limit,
+             previous_suspension_duration_seconds,
              new_enabled,
              new_request_limit,
+             new_suspension_duration_seconds,
              created_at
            )
-           SELECT ?, period, ?, enabled, request_limit, ?, ?, ?
+           SELECT ?, period, ?, enabled, request_limit,
+                  suspension_duration_seconds, ?, ?, ?, ?
            FROM agent_usage_thresholds
            WHERE period = ?
-             AND (enabled <> ? OR request_limit <> ?)`,
+             AND (
+               enabled <> ? OR
+               request_limit <> ? OR
+               suspension_duration_seconds <> ?
+             )`,
         )
         .bind(
           createId(),
           actorUserId,
           enabled,
           rule.threshold,
+          suspensionDurationSeconds,
           updatedAt,
           key,
           enabled,
           rule.threshold,
+          suspensionDurationSeconds,
         ),
       database
         .prepare(
           `UPDATE agent_usage_thresholds
            SET enabled = ?,
                request_limit = ?,
+               suspension_duration_seconds = ?,
                updated_at = ?,
                updated_by_user_id = ?
            WHERE period = ?`,
         )
-        .bind(enabled, rule.threshold, updatedAt, actorUserId, key),
+        .bind(
+          enabled,
+          rule.threshold,
+          suspensionDurationSeconds,
+          updatedAt,
+          actorUserId,
+          key,
+        ),
     ];
   });
   await database.batch(statements);

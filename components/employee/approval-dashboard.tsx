@@ -207,11 +207,14 @@ export function ApprovalDashboard({
     setNotice(null);
     try {
       const result = await updateEmployeeAgentUsageThresholds({
-        rules: thresholdRules.map(({ period, enabled, threshold }) => ({
-          period,
-          enabled,
-          threshold,
-        })),
+        rules: thresholdRules.map(
+          ({ period, enabled, threshold, suspensionHours }) => ({
+            period,
+            enabled,
+            threshold,
+            suspensionHours,
+          }),
+        ),
       });
       setThresholdRules(result.rules);
       setNotice({
@@ -638,10 +641,10 @@ export function ApprovalDashboard({
                   <div className="admin-threshold-heading">
                     <div>
                       <span className="section-kicker">Automatic protection</span>
-                      <h2>Six-hour AI usage suspension</h2>
+                      <h2>Automatic AI usage suspension</h2>
                       <p>
-                        A client is suspended for six hours when a valid AI request
-                        takes an enabled rolling period above its configured limit.
+                        Set an independent request limit and suspension time for each
+                        rolling period. Suspension time accepts up to two decimal places.
                       </p>
                     </div>
                     <button
@@ -701,6 +704,30 @@ export function ApprovalDashboard({
                                 current.map((candidate) =>
                                   candidate.period === rule.period
                                     ? { ...candidate, threshold }
+                                    : candidate,
+                                ),
+                              );
+                            }}
+                          />
+                          <label htmlFor={`agent-suspension-hours-${rule.period}`}>
+                            Suspension time (hours)
+                          </label>
+                          <input
+                            id={`agent-suspension-hours-${rule.period}`}
+                            type="number"
+                            aria-label={`Suspension time in hours for ${rule.label}`}
+                            min="0.01"
+                            max="8760"
+                            step="0.01"
+                            inputMode="decimal"
+                            required
+                            value={rule.suspensionHours}
+                            onChange={(event) => {
+                              const suspensionHours = event.target.valueAsNumber;
+                              setThresholdRules((current) =>
+                                current.map((candidate) =>
+                                  candidate.period === rule.period
+                                    ? { ...candidate, suspensionHours }
                                     : candidate,
                                 ),
                               );

@@ -60,6 +60,10 @@ Times are stored as Unix seconds in UTC.
 adds five disabled-by-default rolling threshold rules, audited administrator
 changes, client suspension state, immutable suspension audit records, and the
 single-statement D1 triggers that serialize event counting and enforcement.
+[`migrations/0020_configurable_agent_suspension_duration.sql`](../migrations/0020_configurable_agent_suspension_duration.sql)
+adds an independently configurable suspension time to every rule. The API and
+Admin Panel use hours with up to two decimal places; D1 stores exact whole
+seconds and retains six hours as the migration default.
 No new secret or environment variable is required.
 
 ### Hosted-runtime password compatibility
@@ -112,9 +116,11 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
    starts before timestamped tracking is explicitly marked partial.
    The same tab lets an employee independently enable and configure positive
    whole-number thresholds for 15 minutes, 1 hour, 6 hours, 12 hours, and 24
-   hours. All five rules start disabled with a stored value of 100. A valid
-   request that raises a client above a limit is recorded but stopped before an
-   AI-provider call, then AI access is suspended for six hours. The shortest
+   hours, plus a per-rule suspension time from `0.01` to `8760` hours with up to
+   two decimal places. All five rules start disabled with a request limit of 100
+   and a six-hour suspension time. A valid request that raises a client above a
+   limit is recorded but stopped before an AI-provider call, then AI access is
+   suspended for the triggering rule's configured duration. The shortest
    breached rule wins when periods overlap. Later attempts neither add events
    nor extend an active expiry. At the exact expiry timestamp the account is
    treated as active without a scheduled cleanup job. Employee accounts are

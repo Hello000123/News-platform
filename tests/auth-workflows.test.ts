@@ -347,6 +347,7 @@ beforeEach(async () => {
     UPDATE agent_usage_thresholds
     SET enabled = 0,
         request_limit = 100,
+        suspension_duration_seconds = 21600,
         updated_at = 0,
         updated_by_user_id = NULL;
     DELETE FROM client_removal_audit_records;
@@ -1000,11 +1001,11 @@ describe("account authentication and approval workflows", () => {
     expect(initial.status).toBe(200);
     expect(await initial.json()).toMatchObject({
       rules: [
-        { period: "last_15_minutes", enabled: false, threshold: 100 },
-        { period: "last_1_hour", enabled: false, threshold: 100 },
-        { period: "last_6_hours", enabled: false, threshold: 100 },
-        { period: "last_12_hours", enabled: false, threshold: 100 },
-        { period: "last_24_hours", enabled: false, threshold: 100 },
+        { period: "last_15_minutes", enabled: false, threshold: 100, suspensionHours: 6 },
+        { period: "last_1_hour", enabled: false, threshold: 100, suspensionHours: 6 },
+        { period: "last_6_hours", enabled: false, threshold: 100, suspensionHours: 6 },
+        { period: "last_12_hours", enabled: false, threshold: 100, suspensionHours: 6 },
+        { period: "last_24_hours", enabled: false, threshold: 100, suspensionHours: 6 },
       ],
     });
 
@@ -1019,11 +1020,11 @@ describe("account authentication and approval workflows", () => {
         },
         body: JSON.stringify({
           rules: [
-            { period: "last_15_minutes", enabled: true, threshold: 0 },
-            { period: "last_1_hour", enabled: false, threshold: 2.5 },
-            { period: "last_6_hours", enabled: false, threshold: 100 },
-            { period: "last_12_hours", enabled: false, threshold: 100 },
-            { period: "last_24_hours", enabled: false, threshold: 100 },
+            { period: "last_15_minutes", enabled: true, threshold: 0, suspensionHours: 6 },
+            { period: "last_1_hour", enabled: false, threshold: 2.5, suspensionHours: 1.001 },
+            { period: "last_6_hours", enabled: false, threshold: 100, suspensionHours: 6 },
+            { period: "last_12_hours", enabled: false, threshold: 100, suspensionHours: 6 },
+            { period: "last_24_hours", enabled: false, threshold: 100, suspensionHours: 6 },
           ],
         }),
       }),
@@ -1031,11 +1032,11 @@ describe("account authentication and approval workflows", () => {
     expect(invalid.status).toBe(400);
 
     const rules = [
-      { period: "last_15_minutes", enabled: true, threshold: 3 },
-      { period: "last_1_hour", enabled: true, threshold: 12 },
-      { period: "last_6_hours", enabled: false, threshold: 50 },
-      { period: "last_12_hours", enabled: false, threshold: 80 },
-      { period: "last_24_hours", enabled: true, threshold: 120 },
+      { period: "last_15_minutes", enabled: true, threshold: 3, suspensionHours: 0.25 },
+      { period: "last_1_hour", enabled: true, threshold: 12, suspensionHours: 1.5 },
+      { period: "last_6_hours", enabled: false, threshold: 50, suspensionHours: 6.75 },
+      { period: "last_12_hours", enabled: false, threshold: 80, suspensionHours: 12 },
+      { period: "last_24_hours", enabled: true, threshold: 120, suspensionHours: 24.5 },
     ];
     const updated = await updateAgentUsageThresholds(
       new Request(`${ORIGIN}/api/employee/agent-usage-thresholds`, {
@@ -1064,7 +1065,9 @@ describe("account authentication and approval workflows", () => {
       await database
         .prepare(
           `SELECT period, previous_enabled, previous_request_limit,
-                  new_enabled, new_request_limit
+                  previous_suspension_duration_seconds,
+                  new_enabled, new_request_limit,
+                  new_suspension_duration_seconds
            FROM agent_usage_threshold_audit_records
            WHERE actor_user_id = 'employee-1' AND period = 'last_15_minutes'`,
         )
@@ -1073,8 +1076,10 @@ describe("account authentication and approval workflows", () => {
       period: "last_15_minutes",
       previous_enabled: 0,
       previous_request_limit: 100,
+      previous_suspension_duration_seconds: 21_600,
       new_enabled: 1,
       new_request_limit: 3,
+      new_suspension_duration_seconds: 900,
     });
   });
 
