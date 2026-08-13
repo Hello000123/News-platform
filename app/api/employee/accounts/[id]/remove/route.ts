@@ -22,6 +22,7 @@ export async function POST(request: Request, context: RouteContext) {
       id,
       session.user,
       input.message,
+      input.confirmationName,
     );
     return jsonResponse({
       removedAccount: result.client,

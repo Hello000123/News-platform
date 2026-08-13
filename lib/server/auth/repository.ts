@@ -553,30 +553,6 @@ export async function getActiveClientAccount(
   return row ? mapAccountListUser(row) : null;
 }
 
-export async function updateClientRemovalEmailStatus(
-  database: D1Database,
-  auditId: string,
-  delivery: {
-    status: "sent" | "preview" | "failed";
-    providerMessageId?: string;
-    errorCode?: string;
-  },
-) {
-  await database
-    .prepare(
-      `UPDATE client_removal_audit_records
-       SET email_status = ?, provider_message_id = ?, email_error_code = ?
-       WHERE id = ?`,
-    )
-    .bind(
-      delivery.status,
-      delivery.providerMessageId ?? null,
-      delivery.errorCode ?? null,
-      auditId,
-    )
-    .run();
-}
-
 export function getUserByEmail(database: D1Database, email: string) {
   return database
     .prepare(

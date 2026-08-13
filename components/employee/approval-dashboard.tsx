@@ -333,15 +333,15 @@ export function ApprovalDashboard({
         ? {
             kind: "warning",
             message:
-              `${client?.fullName || "The client"} can no longer access PressReady, ` +
+              `${client?.fullName || "The client"} was permanently removed, ` +
               "but the removal email could not be delivered.",
           }
         : {
             kind: "success",
             message:
               delivery.status === "sent"
-                ? `${client?.fullName || "The client"} was removed and the notification email was sent.`
-                : `${client?.fullName || "The client"} was removed. Email preview mode recorded the notification without sending it externally.`,
+                ? `${client?.fullName || "The client"} was permanently removed and the notification email was sent.`
+                : `${client?.fullName || "The client"} was permanently removed. Email preview mode recorded the notification without sending it externally.`,
           },
     );
     setLoading(true);

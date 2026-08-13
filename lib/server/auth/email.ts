@@ -165,12 +165,12 @@ export function removedClientAccountEmail(
     messageType: "client_removed",
     text:
       `Hello ${client.fullName},\n\n` +
-      "Your PressReady account has been removed and access has been revoked.\n\n" +
+      "Your PressReady account and its related server data have been permanently removed.\n\n" +
       `Message from the administrator:\n${removalMessage}\n\n` +
       "Contact the organisation if you need further assistance.",
     html:
       `<p>Hello ${escapeHtml(client.fullName)},</p>` +
-      "<p>Your PressReady account has been removed and access has been revoked.</p>" +
+      "<p>Your PressReady account and its related server data have been permanently removed.</p>" +
       "<p><strong>Message from the administrator:</strong></p>" +
       `<p>${escapeHtml(removalMessage).replace(/\n/gu, "<br>")}</p>` +
       "<p>Contact the organisation if you need further assistance.</p>",

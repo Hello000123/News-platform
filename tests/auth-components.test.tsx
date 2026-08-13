@@ -266,6 +266,11 @@ describe("account request and employee summary UI", () => {
 
   it("shows separate account tabs and requires two-step confirmation to remove a client", async () => {
     const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     mocks.listEmployeeAccountRequests.mockResolvedValue({
       requests: [],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
@@ -327,7 +332,7 @@ describe("account request and employee summary UI", () => {
     await user.click(screen.getByRole("button", { name: "Remove account" }));
 
     expect(screen.getByRole("dialog").textContent).toContain(
-      "This will revoke the client's access",
+      "permanently deletes the account",
     );
     await user.click(screen.getByRole("button", { name: "Review removal" }));
     expect(
@@ -345,11 +350,24 @@ describe("account request and employee summary UI", () => {
     ).toBeTruthy();
     expect(mocks.removeClientAccount).not.toHaveBeenCalled();
 
-    await user.click(
-      screen.getByRole("button", { name: "Final confirm removal" }),
-    );
+    const finalRemoval = screen.getByRole("button", {
+      name: "Final confirm removal",
+    });
+    expect(finalRemoval).toHaveProperty("disabled", true);
+    await user.click(screen.getByRole("button", { name: "Copy client name" }));
+    expect(writeText).toHaveBeenCalledWith("Client Person");
+    expect(await screen.findByText("Client name copied.")).toBeTruthy();
+
+    const nameConfirmation = screen.getByLabelText("Client name confirmation");
+    await user.type(nameConfirmation, "Wrong name");
+    expect(finalRemoval).toHaveProperty("disabled", true);
+    await user.clear(nameConfirmation);
+    await user.type(nameConfirmation, "Client Person");
+    expect(finalRemoval).toHaveProperty("disabled", false);
+    await user.click(finalRemoval);
     expect(mocks.removeClientAccount).toHaveBeenCalledWith("client-1", {
       message: "Access is no longer required.",
+      confirmationName: "Client Person",
     });
     expect(
       await screen.findByText(/Email preview mode recorded the notification/iu),

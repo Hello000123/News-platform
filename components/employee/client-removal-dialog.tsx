@@ -26,8 +26,12 @@ export function ClientRemovalDialog({
 }) {
   const [stage, setStage] = useState<"message" | "confirmation">("message");
   const [message, setMessage] = useState("");
+  const [confirmationName, setConfirmationName] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const confirmationMatches =
+    confirmationName.normalize("NFC") === client.fullName.normalize("NFC");
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -38,7 +42,10 @@ export function ClientRemovalDialog({
   }, [onCancel, submitting]);
 
   function continueToConfirmation() {
-    const parsed = clientRemovalInputSchema.safeParse({ message });
+    const parsed = clientRemovalInputSchema.safeParse({
+      message,
+      confirmationName: client.fullName,
+    });
     if (!parsed.success) {
       setErrorMessage(
         parsed.error.issues[0]?.message ||
@@ -53,10 +60,17 @@ export function ClientRemovalDialog({
 
   async function confirmRemoval() {
     if (submitting) return;
+    if (!confirmationMatches) {
+      setErrorMessage("Type the client name exactly as shown to confirm removal.");
+      return;
+    }
     setSubmitting(true);
     setErrorMessage("");
     try {
-      const result = await removeClientAccount(client.id, { message });
+      const result = await removeClientAccount(client.id, {
+        message,
+        confirmationName,
+      });
       onRemoved({ emailDelivery: result.emailDelivery });
     } catch (error) {
       setErrorMessage(
@@ -91,8 +105,9 @@ export function ClientRemovalDialog({
               <h2 id="remove-account-heading">Remove client account?</h2>
               <p id="remove-account-description">
                 You are removing <strong>{client.fullName}</strong>{" "}
-                (<span>{client.email}</span>). This will revoke the client&apos;s
-                access and invalidate every active session.
+                (<span>{client.email}</span>). This permanently deletes the
+                account, sessions, usage, documents, and other client-owned data
+                from the server. This cannot be undone.
               </p>
             </div>
             <div className="auth-field">
@@ -155,12 +170,67 @@ export function ClientRemovalDialog({
               <h2 id="remove-account-heading">Confirm account removal</h2>
               <p id="remove-account-description">
                 Confirm that <strong>{client.fullName}</strong> ({client.email})
-                should lose access.
+                and all related data should be permanently deleted.
               </p>
             </div>
             <div className="admin-removal-message-preview">
               <strong>Message to client</strong>
               <p>{message}</p>
+            </div>
+            <div className="admin-name-confirmation">
+              <p>
+                Type{" "}
+                <span className="admin-confirmation-name">
+                  <strong>{client.fullName}</strong>
+                  <button
+                    className="admin-copy-name-button"
+                    type="button"
+                    disabled={submitting}
+                    aria-label="Copy client name"
+                    onClick={() => {
+                      setCopyStatus("");
+                      if (!navigator.clipboard) {
+                        setCopyStatus(
+                          "Copy was unavailable. Select and copy the name manually.",
+                        );
+                        return;
+                      }
+                      void navigator.clipboard
+                        .writeText(client.fullName)
+                        .then(() => setCopyStatus("Client name copied."))
+                        .catch(() =>
+                          setCopyStatus(
+                            "Copy was unavailable. Select and copy the name manually.",
+                          ),
+                        );
+                    }}
+                  >
+                    Copy
+                  </button>
+                </span>{" "}
+                to confirm permanent deletion.
+              </p>
+              <label htmlFor="client-removal-name-confirmation">
+                Client name confirmation
+              </label>
+              <input
+                id="client-removal-name-confirmation"
+                type="text"
+                value={confirmationName}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={submitting}
+                aria-invalid={Boolean(confirmationName) && !confirmationMatches}
+                onChange={(event) => {
+                  setConfirmationName(event.target.value);
+                  setErrorMessage("");
+                }}
+              />
+              {copyStatus ? (
+                <span className="auth-field-help" role="status">
+                  {copyStatus}
+                </span>
+              ) : null}
             </div>
             {errorMessage ? (
               <div className="auth-alert auth-alert-error" role="alert">
@@ -182,7 +252,7 @@ export function ClientRemovalDialog({
               <button
                 className="button button-danger"
                 type="button"
-                disabled={submitting}
+                disabled={submitting || !confirmationMatches}
                 onClick={confirmRemoval}
               >
                 {submitting ? "Removing account…" : "Final confirm removal"}

@@ -26,10 +26,13 @@ import {
   getActiveClientAccount,
   getSetupTokenByHash,
   recordEmailDelivery,
-  updateClientRemovalEmailStatus,
 } from "@/lib/server/auth/repository";
 import { validateUploadedFile } from "@/lib/server/uploads/file-processing";
-import { getAccountDocumentBucket } from "@/lib/server/uploads/storage";
+import {
+  getAccountDocumentBucket,
+  managedNewsImageKey,
+  newsImageStorageKey,
+} from "@/lib/server/uploads/storage";
 import { buildSessionMaterial, type SessionMaterial } from "@/lib/server/auth/sessions";
 import { AppError } from "@/lib/server/errors";
 import {
@@ -449,6 +452,7 @@ export async function removeClientAccount(
   clientId: string,
   employee: AuthenticatedUser,
   removalMessage: string,
+  confirmationName: string,
 ) {
   assertEmployee(employee);
   const client = await getActiveClientAccount(database, clientId);
@@ -459,68 +463,217 @@ export async function removeClientAccount(
       404,
     );
   }
+  if (confirmationName.normalize("NFC") !== client.fullName.normalize("NFC")) {
+    throw new AppError(
+      "CLIENT_NAME_CONFIRMATION_MISMATCH",
+      "Type the client name exactly as shown to confirm removal.",
+      400,
+    );
+  }
 
   const auditId = createId();
   const now = nowInSeconds();
-  const results = await database.batch([
-    database
-      .prepare(
-        `INSERT INTO client_removal_audit_records (
-          id, removed_client_user_id, client_email, actor_user_id,
-          removal_message, created_at, email_status
+  const attachmentKeys = await database
+    .prepare(
+      `SELECT attachment.storage_key
+       FROM account_request_attachments AS attachment
+       INNER JOIN account_requests AS request
+         ON request.id = attachment.account_request_id
+       WHERE request.email = ? COLLATE NOCASE`,
+    )
+    .bind(client.email)
+    .all<{ storage_key: string }>();
+  const ownedImageUrls = await database
+    .prepare(
+      `SELECT DISTINCT owned.image_url
+       FROM pipeline_articles AS owned
+       WHERE (
+         owned.published_by_user_id = ? OR
+         owned.feed_id IN (
+           SELECT id FROM feeds WHERE created_by_user_id = ?
          )
-         SELECT ?, id, email, ?, ?, ?, 'pending'
-         FROM users
-         WHERE id = ? AND role = 'client' AND status <> 'disabled'`,
-      )
-      .bind(auditId, employee.id, removalMessage, now, clientId),
+       )
+         AND owned.image_url IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM pipeline_articles AS retained
+           WHERE retained.id <> owned.id
+             AND retained.image_url = owned.image_url
+             AND NOT (
+               retained.published_by_user_id = ? OR
+               retained.feed_id IN (
+                 SELECT id FROM feeds WHERE created_by_user_id = ?
+               )
+             )
+         )`,
+    )
+    .bind(clientId, clientId, clientId, clientId)
+    .all<{ image_url: string }>();
+  const storageKeys = new Set(
+    attachmentKeys.results.map(({ storage_key: storageKey }) => storageKey),
+  );
+  for (const { image_url: imageUrl } of ownedImageUrls.results) {
+    const managedKey = managedNewsImageKey(imageUrl);
+    if (managedKey) storageKeys.add(newsImageStorageKey(managedKey));
+  }
+  if (storageKeys.size > 0) {
+    const bucket = getAccountDocumentBucket();
+    const keys = [...storageKeys];
+    try {
+      for (let index = 0; index < keys.length; index += 1_000) {
+        await bucket.delete(keys.slice(index, index + 1_000));
+      }
+    } catch (error) {
+      throw new AppError(
+        "CLIENT_DATA_DELETION_FAILED",
+        "The client data could not be removed completely. No database records were deleted.",
+        503,
+        { cause: error },
+      );
+    }
+  }
+
+  await database.batch([
     database
       .prepare(
-        `UPDATE users
-         SET status = 'disabled',
-             password_hash = NULL,
-             password_set_at = NULL,
-             updated_at = ?
-         WHERE id = ?
-           AND role = 'client'
-           AND status <> 'disabled'
-           AND EXISTS (
-             SELECT 1
-             FROM client_removal_audit_records
-             WHERE id = ? AND removed_client_user_id = users.id
-           )`,
+        `UPDATE pipeline_articles
+         SET merged_into_article_id = NULL
+         WHERE merged_into_article_id IN (
+           SELECT id
+           FROM pipeline_articles
+           WHERE published_by_user_id = ?
+              OR feed_id IN (
+                SELECT id FROM feeds WHERE created_by_user_id = ?
+              )
+         )`,
       )
-      .bind(now, clientId, auditId),
+      .bind(clientId, clientId),
     database
       .prepare(
-        `UPDATE sessions
-         SET revoked_at = ?
-         WHERE user_id = ?
-           AND revoked_at IS NULL
-           AND EXISTS (
-             SELECT 1
-             FROM client_removal_audit_records
-             WHERE id = ? AND removed_client_user_id = sessions.user_id
-           )`,
+        `DELETE FROM pipeline_rewrite_debug_logs
+         WHERE requested_by_user_id = ?
+            OR article_id IN (
+              SELECT id
+              FROM pipeline_articles
+              WHERE published_by_user_id = ?
+                 OR feed_id IN (
+                   SELECT id FROM feeds WHERE created_by_user_id = ?
+                 )
+            )`,
       )
-      .bind(now, clientId, auditId),
+      .bind(clientId, clientId, clientId),
     database
       .prepare(
-        `UPDATE password_setup_tokens
-         SET invalidated_at = ?
-         WHERE user_id = ?
-           AND used_at IS NULL
-           AND invalidated_at IS NULL
-           AND EXISTS (
-             SELECT 1
-             FROM client_removal_audit_records
-             WHERE id = ? AND removed_client_user_id = password_setup_tokens.user_id
-           )`,
+        `DELETE FROM article_presentations
+         WHERE draft_updated_by_user_id = ?
+            OR published_by_user_id = ?
+            OR article_id IN (
+              SELECT id
+              FROM pipeline_articles
+              WHERE published_by_user_id = ?
+                 OR feed_id IN (
+                   SELECT id FROM feeds WHERE created_by_user_id = ?
+                 )
+            )`,
       )
-      .bind(now, clientId, auditId),
+      .bind(clientId, clientId, clientId, clientId),
+    database
+      .prepare(
+        `DELETE FROM public_page_presentations
+         WHERE draft_updated_by_user_id = ? OR published_by_user_id = ?`,
+      )
+      .bind(clientId, clientId),
+    database
+      .prepare(
+        `DELETE FROM client_company_summaries
+         WHERE client_user_id = ? OR generated_by_user_id = ?`,
+      )
+      .bind(clientId, clientId),
+    database
+      .prepare(
+        `DELETE FROM pipeline_rewrite_commits
+         WHERE requested_by_user_id = ?
+            OR article_id IN (
+              SELECT id
+              FROM pipeline_articles
+              WHERE published_by_user_id = ?
+                 OR feed_id IN (
+                   SELECT id FROM feeds WHERE created_by_user_id = ?
+                 )
+            )`,
+      )
+      .bind(clientId, clientId, clientId),
+    database
+      .prepare(
+        `DELETE FROM pipeline_articles
+         WHERE published_by_user_id = ?
+            OR feed_id IN (
+              SELECT id FROM feeds WHERE created_by_user_id = ?
+            )`,
+      )
+      .bind(clientId, clientId),
+    database
+      .prepare("DELETE FROM feeds WHERE created_by_user_id = ?")
+      .bind(clientId),
+    database
+      .prepare(
+        "DELETE FROM agent_usage_suspension_audit_records WHERE subject_user_id = ?",
+      )
+      .bind(clientId),
+    database
+      .prepare(
+        `DELETE FROM client_account_suspension_audit_records
+         WHERE client_user_id = ? OR actor_user_id = ?`,
+      )
+      .bind(clientId, clientId),
+    database
+      .prepare(
+        `DELETE FROM client_removal_audit_records
+         WHERE removed_client_user_id = ?
+            OR client_email = ? COLLATE NOCASE
+            OR actor_user_id = ?`,
+      )
+      .bind(clientId, client.email, clientId),
+    database
+      .prepare(
+        `DELETE FROM email_delivery_records
+         WHERE recipient = ? COLLATE NOCASE
+            OR account_request_id IN (
+              SELECT id FROM account_requests WHERE email = ? COLLATE NOCASE
+            )`,
+      )
+      .bind(client.email, client.email),
+    database
+      .prepare("DELETE FROM approval_audit_records WHERE actor_user_id = ?")
+      .bind(clientId),
+    database
+      .prepare("UPDATE account_requests SET decided_by = NULL WHERE decided_by = ?")
+      .bind(clientId),
+    database
+      .prepare(
+        "DELETE FROM agent_usage_threshold_audit_records WHERE actor_user_id = ?",
+      )
+      .bind(clientId),
+    database
+      .prepare(
+        `UPDATE agent_usage_thresholds
+         SET updated_by_user_id = NULL
+         WHERE updated_by_user_id = ?`,
+      )
+      .bind(clientId),
+    database
+      .prepare("DELETE FROM users WHERE id = ? AND role = 'client'")
+      .bind(clientId),
+    database
+      .prepare("DELETE FROM account_requests WHERE email = ? COLLATE NOCASE")
+      .bind(client.email),
   ]);
 
-  if (changed(results[0]) !== 1 || changed(results[1]) !== 1) {
+  const remainingClient = await database
+    .prepare("SELECT id FROM users WHERE id = ? LIMIT 1")
+    .bind(clientId)
+    .first<{ id: string }>();
+  if (remainingClient) {
     throw new AppError(
       "CLIENT_ACCOUNT_ALREADY_REMOVED",
       "The client account has already been removed.",
@@ -528,21 +681,9 @@ export async function removeClientAccount(
     );
   }
 
-  let delivery: EmailDeliveryResult;
-  try {
-    delivery = await deliverEmail(
-      removedClientAccountEmail(client, removalMessage),
-    );
-  } catch {
-    delivery = { status: "failed", errorCode: "TEMPLATE_CONFIGURATION" };
-  }
-  try {
-    await updateClientRemovalEmailStatus(database, auditId, delivery);
-  } catch (error) {
-    console.error("[auth-client-removal] Delivery status update failed.", {
-      errorType: error instanceof Error ? error.name : typeof error,
-    });
-  }
+  const delivery = await deliverEmail(
+    removedClientAccountEmail(client, removalMessage),
+  );
 
   const audit: ClientRemovalAuditView = {
     id: auditId,

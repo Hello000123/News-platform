@@ -42,8 +42,10 @@ The D1 binding name is `DB`. The schema starts in
 preserves existing requests while making organisation fields nullable and
 adding the nullable administrator message.
 [`migrations/0003_client_account_removals.sql`](../migrations/0003_client_account_removals.sql)
-adds immutable client-removal audit records without changing or deleting any
-existing user.
+historically added soft-removal audit records without changing existing users.
+The current removal service purges matching legacy rows for the client and does
+not create a new identifying audit record, so permanent deletion does not
+retain the client id, email address, or administrator message in D1.
 [`migrations/0004_account_request_attachments.sql`](../migrations/0004_account_request_attachments.sql)
 adds the D1 metadata and ownership table for private R2 account documents.
 [`migrations/0005_agent_request_usage.sql`](../migrations/0005_agent_request_usage.sql)
@@ -139,9 +141,15 @@ and returns normal user-safe 401 responses for incorrect or unknown accounts.
    in place of **Suspend client**. One recovery confirmation clears either
    manual suspension or an active AI-usage suspension and lets the client sign
    in again with the existing password.
-   Removing a client deactivates the user, clears the password hash, revokes all
-   sessions, invalidates unused setup tokens, stores an audit record, and sends
-   the administrator's message to the client. Employee removal is not exposed.
+   Removing a client is permanent deletion, not suspension. The administrator
+   first provides the client-facing email message, then must type the exact
+   client name on the final screen; a copy button supports names in any script.
+   The server verifies the name again and erases the user, account requests,
+   email records, sessions and setup tokens, usage and suspension records,
+   summaries, client-owned publishing data, private supporting documents, and
+   unshared managed article images. The notification email is attempted after
+   deletion. No new identifying removal audit row remains. Employee removal is
+   not exposed.
 
 Client applications do not require or expose email verification codes, links,
 resend actions, or timers. Manual employee approval remains the verification

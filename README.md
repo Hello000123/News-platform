@@ -553,6 +553,16 @@ the password or retained client data. Migration
 `0021_client_account_suspension_and_recovery.sql` adds manual state, audited
 suspension/recovery actions, and session-level enforcement.
 
+**Remove account** is intentionally different from suspension. The final
+screen requires the administrator to type the client&apos;s exact stored name;
+the displayed name has a copy button so names in any script can be confirmed
+without retyping. After confirmation, removal erases the client user, account
+requests and email records, sessions and setup tokens, AI usage and suspension
+history, client summaries, client-owned feeds/articles/presentations/debug
+records, and their private R2 documents or unshared managed images. The
+notification email is attempted after server-side deletion, and no new
+client-identifying removal audit row is retained.
+
 Passwords must contain 9–63 English keyboard characters. No uppercase,
 lowercase, number, symbol, or character-combination rule is imposed. Passwords
 use scrypt (`N=32768`, `r=8`, `p=3`) in the browser or employee CLI. D1 stores

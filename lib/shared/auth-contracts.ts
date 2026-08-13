@@ -364,6 +364,15 @@ export const clientRemovalInputSchema = z
             `Removal message must be ${CLIENT_REMOVAL_MESSAGE_MAX_LENGTH.toLocaleString()} characters or fewer.`,
           ),
       ),
+    confirmationName: z
+      .string()
+      .min(1, "Type the client name to confirm removal.")
+      .max(120, "Client name confirmation is too long.")
+      .refine(
+        (value) => !CONTROL_CHARACTERS.test(value),
+        "Client name confirmation contains invalid characters.",
+      )
+      .transform((value) => value.normalize("NFC")),
   })
   .strict();
 

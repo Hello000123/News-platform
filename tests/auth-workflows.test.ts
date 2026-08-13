@@ -263,11 +263,12 @@ async function removeClient(
   clientId: string,
   authentication: { cookie: string; csrf: string },
   message: string,
+  confirmationName = "Removable Client",
 ) {
   return removeEmployeeClient(
     jsonRequest(
       `/api/employee/accounts/${clientId}/remove`,
-      { message },
+      { message, confirmationName },
       authentication,
     ),
     routeContext(clientId),
@@ -771,7 +772,7 @@ describe("account authentication and approval workflows", () => {
     });
   });
 
-  it("separates account lists and safely removes a client with sessions and an audit record", async () => {
+  it("requires the client name and permanently removes all client data", async () => {
     await insertUser({
       id: "client-remove",
       email: "remove-client@example.test",
@@ -779,6 +780,229 @@ describe("account authentication and approval workflows", () => {
       role: "client",
       passwordHash: clientHash,
     });
+    const removalCreatedAt = nowInSeconds();
+    const documentKey = "account-requests/client-remove-document";
+    const imageKey = "a".repeat(32);
+    await database.batch([
+      database
+        .prepare(
+          `INSERT INTO account_requests (
+             id, email, full_name, phone, company, department, job_title,
+             status, decided_by, decided_at, decision_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          "request-client-remove",
+          "remove-client@example.test",
+          "Removable Client",
+          "+852 2345 6789",
+          "Removal Company",
+          "Editorial",
+          "Editor",
+          "employee-1",
+          removalCreatedAt,
+          "decision-client-remove",
+          removalCreatedAt,
+          removalCreatedAt,
+        ),
+      database
+        .prepare("UPDATE users SET account_request_id = ? WHERE id = ?")
+        .bind("request-client-remove", "client-remove"),
+      database
+        .prepare(
+          `INSERT INTO account_request_attachments (
+             id, account_request_id, storage_key, original_name,
+             content_type, size_bytes, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          "attachment-client-remove",
+          "request-client-remove",
+          documentKey,
+          "client-document.pdf",
+          "application/pdf",
+          8,
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO approval_audit_records (
+             id, account_request_id, actor_user_id, action, created_at
+           ) VALUES (?, ?, ?, 'approved', ?)`,
+        )
+        .bind(
+          "approval-client-remove",
+          "request-client-remove",
+          "employee-1",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO email_delivery_records (
+             id, account_request_id, message_type, recipient, status, created_at
+           ) VALUES (?, ?, 'approved_setup', ?, 'preview', ?)`,
+        )
+        .bind(
+          "email-client-remove",
+          "request-client-remove",
+          "remove-client@example.test",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO feeds (
+             id, name, url, status, created_at, updated_at, created_by_user_id
+           ) VALUES (?, ?, ?, 'active', ?, ?, ?)`,
+        )
+        .bind(
+          "feed-client-remove",
+          "Client-owned feed",
+          "https://remove-client.example.test/feed",
+          removalCreatedAt,
+          removalCreatedAt,
+          "client-remove",
+        ),
+      database
+        .prepare(
+          `INSERT INTO pipeline_articles (
+             id, feed_id, title, url, status, image_url, published_at,
+             published_by_user_id, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          "article-client-remove",
+          "feed-client-remove",
+          "Client-owned article",
+          "https://remove-client.example.test/article",
+          `/api/news-images/${imageKey}`,
+          removalCreatedAt,
+          "client-remove",
+          removalCreatedAt,
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO article_presentations (
+             article_id, draft_json, draft_source_updated_at,
+             draft_updated_by_user_id, draft_updated_at
+           ) VALUES (?, '{}', ?, ?, ?)`,
+        )
+        .bind(
+          "article-client-remove",
+          removalCreatedAt,
+          "client-remove",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO public_page_presentations (
+             page_key, draft_json, draft_source_updated_at,
+             draft_updated_by_user_id, draft_updated_at
+           ) VALUES ('homepage', '{}', ?, ?, ?)`,
+        )
+        .bind(removalCreatedAt, "client-remove", removalCreatedAt),
+      database
+        .prepare(
+          `INSERT INTO pipeline_rewrite_commits (
+             id, batch_id, article_id, requested_by_user_id, requested_model,
+             output_language, related_report_count, validation_status,
+             attempts, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'passed', 1, ?)`,
+        )
+        .bind(
+          "commit-client-remove",
+          "batch-client-remove",
+          "article-client-remove",
+          "client-remove",
+          "grok-4.5",
+          "zh-HK",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO pipeline_rewrite_debug_logs (
+             id, article_id, article_title, requested_by_user_id,
+             requested_model, output_language, related_report_count, outcome,
+             error_details_json, quotation_issue_kinds_json, duration_ms,
+             created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'success', '[]', '[]', 1, ?)`,
+        )
+        .bind(
+          "debug-client-remove",
+          "article-client-remove",
+          "Client-owned article",
+          "client-remove",
+          "grok-4.5",
+          "zh-HK",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO client_company_summaries (
+             client_user_id, products_or_services_json,
+             recurring_subjects_json, generated_at, updated_at,
+             generated_by_user_id
+           ) VALUES (?, '[]', '[]', ?, ?, ?)`,
+        )
+        .bind(
+          "client-remove",
+          removalCreatedAt,
+          removalCreatedAt,
+          "employee-1",
+        ),
+      database
+        .prepare(
+          `INSERT INTO agent_usage_suspension_audit_records (
+             id, subject_user_id, triggered_period, configured_threshold,
+             observed_request_count, suspension_started_at,
+             suspension_expires_at, created_at
+           ) VALUES (?, ?, 'last_15_minutes', 10, 11, ?, ?, ?)`,
+        )
+        .bind(
+          "auto-audit-client-remove",
+          "client-remove",
+          removalCreatedAt,
+          removalCreatedAt + 3_600,
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO client_account_suspension_audit_records (
+             id, client_user_id, actor_user_id, action, reason, created_at,
+             email_status
+           ) VALUES (?, ?, ?, 'manual_suspended', ?, ?, 'preview')`,
+        )
+        .bind(
+          "manual-audit-client-remove",
+          "client-remove",
+          "employee-1",
+          "Earlier suspension reason",
+          removalCreatedAt,
+        ),
+      database
+        .prepare(
+          `INSERT INTO client_removal_audit_records (
+             id, removed_client_user_id, client_email, actor_user_id,
+             removal_message, created_at, email_status
+           ) VALUES (?, ?, ?, ?, ?, ?, 'preview')`,
+        )
+        .bind(
+          "legacy-removal-client-remove",
+          "client-remove",
+          "remove-client@example.test",
+          "employee-1",
+          "Legacy soft-removal record",
+          removalCreatedAt,
+        ),
+    ]);
+    await accountDocuments.put(documentKey, "document");
+    await accountDocuments.put(`news-images/${imageKey}`, "image");
+    await incrementAgentRequestAttempt(
+      database,
+      "client-remove",
+      "review",
+      removalCreatedAt,
+    );
     const clientLogin = await loginAs(
       "remove-client@example.test",
       CLIENT_PASSWORD,
@@ -800,7 +1024,7 @@ describe("account authentication and approval workflows", () => {
           fullName: "Removable Client",
           email: "remove-client@example.test",
           role: "client",
-          periodRequestCount: 0,
+          periodRequestCount: 1,
         },
       ],
       summary: { employeeAccounts: 1, clientAccounts: 1 },
@@ -883,6 +1107,22 @@ describe("account authentication and approval workflows", () => {
 
     const removalMessage =
       "Your project access is no longer required.\r\nContact the newsroom administrator with questions.";
+    const wrongName = await removeClient(
+      "client-remove",
+      employeeAuth,
+      removalMessage,
+      "Another Client",
+    );
+    expect(wrongName.status).toBe(400);
+    expect(await wrongName.json()).toMatchObject({
+      error: { code: "CLIENT_NAME_CONFIRMATION_MISMATCH" },
+    });
+    expect(
+      await database
+        .prepare("SELECT id FROM users WHERE id = 'client-remove'")
+        .first(),
+    ).toEqual({ id: "client-remove" });
+
     const removed = await removeClient(
       "client-remove",
       employeeAuth,
@@ -908,54 +1148,64 @@ describe("account authentication and approval workflows", () => {
     expect(
       await database
         .prepare(
-          `SELECT status, password_hash, password_set_at
-           FROM users WHERE id = ?`,
-        )
-        .bind("client-remove")
-        .first<{
-          status: string;
-          password_hash: string | null;
-          password_set_at: number | null;
-        }>(),
-    ).toEqual({
-      status: "disabled",
-      password_hash: null,
-      password_set_at: null,
-    });
-    const clientSessions = await database
-      .prepare(
-        "SELECT revoked_at FROM sessions WHERE user_id = ?",
-      )
-      .bind("client-remove")
-      .all<{ revoked_at: number | null }>();
-    expect(clientSessions.results.length).toBeGreaterThan(0);
-    expect(clientSessions.results.every((session) => session.revoked_at)).toBe(
-      true,
-    );
-    expect(
-      await database
-        .prepare(
           `SELECT
-             removed_client_user_id,
-             client_email,
-             actor_user_id,
-             removal_message,
-             email_status,
-             created_at
-           FROM client_removal_audit_records
-           WHERE removed_client_user_id = ?`,
+             (SELECT COUNT(*) FROM users WHERE id = 'client-remove') AS user_rows,
+             (SELECT COUNT(*) FROM account_requests
+                WHERE email = 'remove-client@example.test') AS request_rows,
+             (SELECT COUNT(*) FROM account_request_attachments
+                WHERE account_request_id = 'request-client-remove') AS attachment_rows,
+             (SELECT COUNT(*) FROM sessions
+                WHERE user_id = 'client-remove') AS session_rows,
+             (SELECT COUNT(*) FROM agent_request_events
+                WHERE user_id = 'client-remove') AS event_rows,
+             (SELECT COUNT(*) FROM agent_request_usage
+                WHERE user_id = 'client-remove') AS usage_rows,
+             (SELECT COUNT(*) FROM agent_usage_suspension_audit_records
+                WHERE subject_user_id = 'client-remove') AS automatic_audit_rows,
+             (SELECT COUNT(*) FROM client_account_suspension_audit_records
+                WHERE client_user_id = 'client-remove') AS manual_audit_rows,
+             (SELECT COUNT(*) FROM client_removal_audit_records
+                WHERE removed_client_user_id = 'client-remove'
+                   OR client_email = 'remove-client@example.test') AS removal_audit_rows,
+             (SELECT COUNT(*) FROM client_company_summaries
+                WHERE client_user_id = 'client-remove') AS summary_rows,
+             (SELECT COUNT(*) FROM feeds
+                WHERE created_by_user_id = 'client-remove') AS feed_rows,
+             (SELECT COUNT(*) FROM pipeline_articles
+                WHERE id = 'article-client-remove') AS article_rows,
+             (SELECT COUNT(*) FROM article_presentations
+                WHERE article_id = 'article-client-remove') AS article_presentation_rows,
+             (SELECT COUNT(*) FROM public_page_presentations
+                WHERE draft_updated_by_user_id = 'client-remove') AS page_presentation_rows,
+             (SELECT COUNT(*) FROM pipeline_rewrite_commits
+                WHERE requested_by_user_id = 'client-remove') AS rewrite_commit_rows,
+             (SELECT COUNT(*) FROM pipeline_rewrite_debug_logs
+                WHERE requested_by_user_id = 'client-remove') AS debug_rows,
+             (SELECT COUNT(*) FROM email_delivery_records
+                WHERE recipient = 'remove-client@example.test') AS email_rows`,
         )
-        .bind("client-remove")
         .first(),
-    ).toMatchObject({
-      removed_client_user_id: "client-remove",
-      client_email: "remove-client@example.test",
-      actor_user_id: "employee-1",
-      removal_message:
-        "Your project access is no longer required.\nContact the newsroom administrator with questions.",
-      email_status: "preview",
-      created_at: expect.any(Number),
+    ).toEqual({
+      user_rows: 0,
+      request_rows: 0,
+      attachment_rows: 0,
+      session_rows: 0,
+      event_rows: 0,
+      usage_rows: 0,
+      automatic_audit_rows: 0,
+      manual_audit_rows: 0,
+      removal_audit_rows: 0,
+      summary_rows: 0,
+      feed_rows: 0,
+      article_rows: 0,
+      article_presentation_rows: 0,
+      page_presentation_rows: 0,
+      rewrite_commit_rows: 0,
+      debug_rows: 0,
+      email_rows: 0,
     });
+    expect(await accountDocuments.head(documentKey)).toBeNull();
+    expect(await accountDocuments.head(`news-images/${imageKey}`)).toBeNull();
 
     const oldSession = await currentSession(
       getRequest(
@@ -980,7 +1230,7 @@ describe("account authentication and approval workflows", () => {
       accounts: [],
       summary: { employeeAccounts: 1, clientAccounts: 0 },
     });
-  });
+  }, 15_000);
 
   it("suspends a client with an emailed reason and recovers the retained account", async () => {
     const employeeAuth = await employeeAuthentication();

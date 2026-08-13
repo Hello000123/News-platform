@@ -3187,6 +3187,78 @@ footer p {
   white-space: pre-wrap;
 }
 
+.admin-name-confirmation {
+  display: grid;
+  gap: 9px;
+}
+
+.admin-name-confirmation > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.admin-confirmation-name {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 4px 5px 4px 10px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f5f7fa;
+  vertical-align: middle;
+}
+
+.admin-confirmation-name strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-strong);
+}
+
+.admin-copy-name-button {
+  padding: 4px 7px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.admin-copy-name-button:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue-dark);
+}
+
+.admin-name-confirmation > label {
+  color: var(--ink-strong);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.admin-name-confirmation > input {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink-strong);
+}
+
+.admin-name-confirmation > input:focus {
+  border-color: var(--blue);
+  outline: 3px solid rgba(42, 99, 209, 0.13);
+}
+
+.admin-name-confirmation > input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
 .status-badge {
   display: inline-flex;
   padding: 5px 9px;
