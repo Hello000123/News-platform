@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   createContext,
+  type ChangeEvent,
   type CSSProperties,
   Fragment,
   type KeyboardEvent,
@@ -20,6 +21,7 @@ import {
   ArticlePresentationRequestError,
   updateArticlePresentation,
   updatePublicPagePresentation,
+  uploadPresentationImage,
 } from "@/lib/client/article-presentation-api";
 import {
   applyArticleTextStyle,
@@ -33,9 +35,11 @@ import {
   articlePresentationBlockText,
   articlePresentationFingerprint,
   articlePresentationImageGeometry,
+  articlePresentationImageSource,
   articlePresentationSelectionStyle,
   replaceArticleText,
   setArticlePresentationImageGeometry,
+  setArticlePresentationImageSource,
   type ArticlePresentation,
   type ArticlePresentationFontFamily,
   type ArticlePresentationFontSize,
@@ -43,6 +47,7 @@ import {
   type ArticlePresentationStylePatch,
 } from "@/lib/shared/article-presentation";
 import type { PublicPagePresentationKey } from "@/lib/shared/public-page-presentation";
+import { MAX_UPLOAD_BYTES } from "@/lib/shared/file-upload";
 
 type TextSelection = {
   kind: "text";
@@ -75,6 +80,7 @@ interface ArticlePresentationEditorContextValue {
   selectImage: (imageId: string) => void;
   applyStyle: (patch: ArticlePresentationStylePatch) => void;
   resizeImage: (direction: -1 | 1) => void;
+  replaceImage: (imageId: string, file: File) => Promise<void>;
   previewImageGeometry: (
     imageId: string,
     widthPercent: number,
@@ -335,6 +341,7 @@ export function ArticlePresentationEditorProvider({
     useState(initialPublished);
   const [selection, setSelection] = useState<EditorSelection>(null);
   const [busyAction, setBusyAction] = useState<"save" | "publish" | null>(null);
+  const [replacingImageId, setReplacingImageId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [historyControls, setHistoryControls] = useState({
@@ -344,6 +351,7 @@ export function ArticlePresentationEditorProvider({
   const allowNavigationRef = useRef(false);
   const historyRef = useRef<ArticlePresentation[]>([initialPresentation]);
   const historyIndexRef = useRef(0);
+  const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
   const dirty =
     articlePresentationFingerprint(presentation) !==
@@ -652,6 +660,38 @@ export function ArticlePresentationEditorProvider({
     }
   }
 
+  async function replaceImage(imageId: string, file: File) {
+    if (!editMode || busyAction || replacingImageId) return;
+    if (
+      !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
+      file.size > MAX_UPLOAD_BYTES
+    ) {
+      setErrorMessage("Choose a PNG, JPEG, or WebP picture smaller than 10 MB.");
+      return;
+    }
+    setReplacingImageId(imageId);
+    setErrorMessage("");
+    try {
+      const { imageUrl } = await uploadPresentationImage(file);
+      const next = setArticlePresentationImageSource(
+        presentationRef.current,
+        imageId,
+        imageUrl,
+      );
+      if (recordPresentation(next)) {
+        setStatus("Picture replaced. Save or publish when ready.");
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ArticlePresentationRequestError
+          ? error.message
+          : "The picture could not be replaced. Try again.",
+      );
+    } finally {
+      setReplacingImageId(null);
+    }
+  }
+
   function setImageScalePercent(imageId: string, requestedValue: number) {
     if (!Number.isFinite(requestedValue)) return;
     const current = presentationRef.current;
@@ -785,6 +825,7 @@ export function ArticlePresentationEditorProvider({
     },
     applyStyle,
     resizeImage,
+    replaceImage,
     previewImageGeometry,
     commitImageGeometry,
   };
@@ -794,6 +835,14 @@ export function ArticlePresentationEditorProvider({
   const imageSelected = selection?.kind === "image";
   const resolvedExitHref =
     exitHref ?? (articleId ? `/news/${encodeURIComponent(articleId)}` : "/");
+
+  function handleReplaceImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    const imageId = selectedImageId;
+    event.target.value = "";
+    if (!file || !imageId) return;
+    void replaceImage(imageId, file);
+  }
 
   return (
     <ArticlePresentationEditorContext.Provider value={context}>
@@ -1138,6 +1187,23 @@ export function ArticlePresentationEditorProvider({
                     }
                     onClick={() => resizeImage(1)}
                   >+</RibbonButton>
+                  <RibbonButton
+                    label="Replace picture"
+                    title="Replace picture with a PNG, JPEG, or WebP file from this computer"
+                    disabled={controlsDisabled || !imageSelected || Boolean(replacingImageId)}
+                    onClick={() => replaceImageInputRef.current?.click()}
+                  >
+                    {replacingImageId ? "Replacing…" : "Replace picture"}
+                  </RibbonButton>
+                  <input
+                    ref={replaceImageInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onChange={handleReplaceImageChange}
+                  />
                 </div>
                 <p>Double-click, then drag. Hold Ctrl to keep the original ratio.</p>
                 <span className="news-presentation-ribbon-label">Picture size</span>
@@ -1326,6 +1392,11 @@ export function ArticlePresentationImage({
     editor.presentation,
     imageId,
   );
+  const resolvedSource = articlePresentationImageSource(
+    editor.presentation,
+    imageId,
+    src,
+  );
   const [resizeReady, setResizeReady] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const frameRef = useRef<HTMLSpanElement>(null);
@@ -1434,7 +1505,7 @@ export function ArticlePresentationImage({
           "news-presentation-image" +
           (editor.editMode ? " news-presentation-image-editable" : "")
         }
-        src={src}
+        src={resolvedSource}
         width={intrinsicWidth}
         height={intrinsicHeight}
         alt={alt}

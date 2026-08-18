@@ -21,6 +21,7 @@ import {
   createDefaultArticlePresentation,
   replaceArticleText,
 } from "@/lib/shared/article-presentation";
+import { uploadPresentationImage } from "@/lib/client/article-presentation-api";
 
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children?: ReactNode; href: string }) => (
@@ -34,6 +35,7 @@ vi.mock("@/lib/client/article-presentation-api", () => ({
   ArticlePresentationRequestError: class extends Error {},
   updateArticlePresentation: vi.fn(),
   updatePublicPagePresentation: vi.fn(),
+  uploadPresentationImage: vi.fn(),
 }));
 
 function renderEditor(text = "Editable title") {
@@ -71,6 +73,7 @@ describe("restricted article presentation editor", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it("offers the complete Word-like Home ribbon and enables it for selected text", async () => {
@@ -360,5 +363,183 @@ describe("restricted article presentation editor", () => {
       expect(screen.getByRole("heading", { name: "Published title" })).toBeTruthy(),
     );
     expect(screen.queryByRole("toolbar")).toBeNull();
+  });
+
+  it("replaces only the double-clicked picture and keeps resize working", async () => {
+    const user = userEvent.setup();
+    const presentation = createDefaultArticlePresentation(10, [
+      { id: "title", text: "Editable title" },
+    ]);
+    const uploadedImageUrl =
+      "/api/news-images/0123456789abcdef0123456789abcdef?v=2";
+    vi.mocked(uploadPresentationImage).mockResolvedValue({
+      imageUrl: uploadedImageUrl,
+    });
+    render(
+      <ArticlePresentationEditorProvider
+        articleId="article-1"
+        editMode
+        initialDraft={presentation}
+        initialPublished={presentation}
+      >
+        <h1>
+          <ArticlePresentationText blockId="title" text="Editable title" />
+        </h1>
+        <ArticlePresentationImage
+          imageId="hero"
+          src="/hero.webp"
+          alt="Hero picture"
+        />
+        <ArticlePresentationImage
+          imageId="second"
+          src="/second.webp"
+          alt="Second picture"
+        />
+      </ArticlePresentationEditorProvider>,
+    );
+
+    const hero = screen.getByRole("button", { name: /Hero picture/ });
+    const replace = screen.getByRole("button", { name: "Replace picture" });
+    expect(replace.hasAttribute("disabled")).toBe(true);
+
+    await user.dblClick(hero);
+    expect(replace.hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Drag to resize image" })).toBeTruthy();
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    const file = new File([new Uint8Array([1, 2, 3])], "new photo.png", {
+      type: "image/png",
+    });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect((screen.getByAltText("Hero picture") as HTMLImageElement).src).toContain(
+        "api/news-images/0123456789abcdef0123456789abcdef",
+      );
+    });
+    expect((screen.getByAltText("Second picture") as HTMLImageElement).src).toContain(
+      "/second.webp",
+    );
+    expect(uploadPresentationImage).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Save Changes" }).hasAttribute("disabled")).toBe(false);
+
+    const frame = hero.closest(".news-presentation-image-frame") as HTMLElement;
+    expect(frame.style.width).toBe("100%");
+
+    const smaller = screen.getByRole("button", { name: "Make image smaller" });
+    await user.click(smaller);
+    expect(frame.style.width).toBe("90%");
+  });
+
+  it("selecting the same file again and replacing a second picture works", async () => {
+    const user = userEvent.setup();
+    const presentation = createDefaultArticlePresentation(10, [
+      { id: "title", text: "Editable title" },
+    ]);
+    const uploadedImageUrl =
+      "/api/news-images/fedcba9876543210fedcba9876543210?v=3";
+    vi.mocked(uploadPresentationImage).mockResolvedValue({
+      imageUrl: uploadedImageUrl,
+    });
+    render(
+      <ArticlePresentationEditorProvider
+        articleId="article-1"
+        editMode
+        initialDraft={presentation}
+        initialPublished={presentation}
+      >
+        <h1>
+          <ArticlePresentationText blockId="title" text="Editable title" />
+        </h1>
+        <ArticlePresentationImage
+          imageId="hero"
+          src="/hero.webp"
+          alt="Hero picture"
+        />
+        <ArticlePresentationImage
+          imageId="second"
+          src="/second.webp"
+          alt="Second picture"
+        />
+      </ArticlePresentationEditorProvider>,
+    );
+
+    const hero = screen.getByRole("button", { name: /Hero picture/ });
+    const second = screen.getByRole("button", { name: /Second picture/ });
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    const file = new File([new Uint8Array([4, 5, 6])], "same photo.png", {
+      type: "image/png",
+    });
+
+    await user.dblClick(hero);
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() =>
+      expect((screen.getByAltText("Hero picture") as HTMLImageElement).src).toContain(
+        "api/news-images/fedcba9876543210fedcba9876543210",
+      ),
+    );
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() => expect(uploadPresentationImage).toHaveBeenCalledTimes(2));
+
+    await user.dblClick(second);
+    fireEvent.change(input, { target: { files: [file] } });
+    await waitFor(() =>
+      expect((screen.getByAltText("Second picture") as HTMLImageElement).src).toContain(
+        "api/news-images/fedcba9876543210fedcba9876543210",
+      ),
+    );
+    expect((screen.getByAltText("Hero picture") as HTMLImageElement).src).toContain(
+      "api/news-images/fedcba9876543210fedcba9876543210",
+    );
+    expect(uploadPresentationImage).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves the picture unchanged when the file dialog is cancelled or an unsupported file is chosen", async () => {
+    const user = userEvent.setup();
+    const presentation = createDefaultArticlePresentation(10, [
+      { id: "title", text: "Editable title" },
+    ]);
+    render(
+      <ArticlePresentationEditorProvider
+        articleId="article-1"
+        editMode
+        initialDraft={presentation}
+        initialPublished={presentation}
+      >
+        <h1>
+          <ArticlePresentationText blockId="title" text="Editable title" />
+        </h1>
+        <ArticlePresentationImage src="/hero.webp" alt="Hero picture" />
+      </ArticlePresentationEditorProvider>,
+    );
+
+    const hero = screen.getByRole("button", { name: /Hero picture/ });
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    await user.dblClick(hero);
+
+    fireEvent.change(input, { target: { files: [] } });
+    expect((screen.getByAltText("Hero picture") as HTMLImageElement).src).toContain(
+      "/hero.webp",
+    );
+    expect(uploadPresentationImage).not.toHaveBeenCalled();
+
+    const textFile = new File([new Uint8Array([1])], "notes.txt", {
+      type: "text/plain",
+    });
+    fireEvent.change(input, { target: { files: [textFile] } });
+    expect((screen.getByAltText("Hero picture") as HTMLImageElement).src).toContain(
+      "/hero.webp",
+    );
+    expect(uploadPresentationImage).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alert").textContent,
+    ).toMatch(/PNG, JPEG, or WebP/iu);
+    expect(screen.getByRole("button", { name: "Save Changes" }).hasAttribute("disabled")).toBe(true);
   });
 });

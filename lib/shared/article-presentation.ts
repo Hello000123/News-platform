@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const ARTICLE_PRESENTATION_VERSION = 1 as const;
+export const PRESENTATION_IMAGE_SOURCE_PATTERN =
+  /^\/api\/news-images\/[0-9a-f]{32}\?v=\d{1,13}$/u;
 export const ARTICLE_IMAGE_MIN_SCALE_PERCENT = 30;
 export const ARTICLE_IMAGE_MAX_SCALE_PERCENT = 100;
 export const ARTICLE_IMAGE_SCALE_STEP = 10;
@@ -191,6 +193,21 @@ export const articlePresentationSchema = z
         "The presentation contains too many images.",
       )
       .default({}),
+    imageSources: z
+      .record(
+        z.string().regex(SAFE_PRESENTATION_ID, "The presentation image is invalid."),
+        z
+          .string()
+          .regex(
+            PRESENTATION_IMAGE_SOURCE_PATTERN,
+            "Choose a supported replacement image.",
+          ),
+      )
+      .refine(
+        (sources) => Object.keys(sources).length <= ARTICLE_PRESENTATION_MAX_IMAGES,
+        "The presentation contains too many images.",
+      )
+      .default({}),
   })
   .strict();
 
@@ -266,6 +283,7 @@ export function createDefaultArticlePresentation(
     })),
     imageScalePercent: ARTICLE_IMAGE_MAX_SCALE_PERCENT,
     imageAspectRatio: null,
+    imageSources: {},
     imageSettings: Object.fromEntries(
       sourceImageIds
         .filter((imageId) => imageId !== "hero")
@@ -325,6 +343,11 @@ export function validateArticlePresentation(
       throw new Error("Presentation images cannot be added or replaced.");
     }
   }
+  for (const imageId of Object.keys(parsed.imageSources)) {
+    if (!allowedImages.has(imageId)) {
+      throw new Error("Presentation images cannot be added or replaced.");
+    }
+  }
 
   return articlePresentationSchema.parse({ ...parsed, blocks });
 }
@@ -366,6 +389,25 @@ export function setArticlePresentationImageGeometry(
       ...presentation.imageSettings,
       [imageId]: parsedGeometry,
     },
+  });
+}
+
+export function articlePresentationImageSource(
+  presentation: ArticlePresentation,
+  imageId: string,
+  fallback: string,
+) {
+  return presentation.imageSources[imageId] ?? fallback;
+}
+
+export function setArticlePresentationImageSource(
+  presentation: ArticlePresentation,
+  imageId: string,
+  source: string,
+) {
+  return articlePresentationSchema.parse({
+    ...presentation,
+    imageSources: { ...presentation.imageSources, [imageId]: source },
   });
 }
 

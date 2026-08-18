@@ -7,129 +7,20 @@ import {
   updatePipelineArticlePost,
 } from "@/lib/server/feeds/repository";
 import { jsonResponse } from "@/lib/server/http";
-import { validateUploadedFile } from "@/lib/server/uploads/file-processing";
+import { readNewsImageUpload } from "@/lib/server/uploads/news-image";
 import {
   getNewsImageBucket,
   managedNewsImageKey,
   newsImageStorageKey,
 } from "@/lib/server/uploads/storage";
-import {
-  isImageUploadMime,
-  MAX_UPLOAD_BYTES,
-  uploadExtension,
-} from "@/lib/shared/file-upload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 128 * 1024;
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const PUBLIC_IMAGE_CACHE = "public, max-age=31536000, immutable";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
-}
-
-function imageFile(formData: FormData) {
-  const candidate = formData.get("file");
-  if (!(candidate instanceof File)) {
-    throw new AppError(
-      "IMAGE_REQUIRED",
-      "Choose a PNG, JPEG, or WebP image before continuing.",
-      400,
-    );
-  }
-  return candidate;
-}
-
-function assertSupportedImageMetadata(file: File) {
-  if (
-    !IMAGE_EXTENSIONS.has(uploadExtension(file.name)) ||
-    !isImageUploadMime(file.type)
-  ) {
-    throw new AppError(
-      "UNSUPPORTED_IMAGE_TYPE",
-      "Choose a PNG, JPEG, or WebP image.",
-      400,
-    );
-  }
-}
-
-function imageTooLarge() {
-  return new AppError(
-    "FILE_TOO_LARGE",
-    "The selected image is larger than the 10 MB limit.",
-    413,
-  );
-}
-
-async function readLimitedMultipartFormData(request: Request, contentType: string) {
-  if (!request.body) {
-    throw new AppError("INVALID_UPLOAD", "The uploaded image could not be read.", 400);
-  }
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > MAX_MULTIPART_BYTES) {
-      await reader.cancel().catch(() => undefined);
-      throw imageTooLarge();
-    }
-    chunks.push(value);
-  }
-
-  const body = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  try {
-    return await new Response(body.buffer as ArrayBuffer, {
-      headers: { "Content-Type": contentType },
-    }).formData();
-  } catch (error) {
-    throw new AppError(
-      "INVALID_UPLOAD",
-      "The uploaded image could not be read.",
-      400,
-      { cause: error },
-    );
-  }
-}
-
-async function readImageUpload(request: Request) {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
-    throw new AppError(
-      "UNSUPPORTED_MEDIA_TYPE",
-      "Upload the image using multipart form data.",
-      415,
-    );
-  }
-
-  const contentLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > MAX_MULTIPART_BYTES) {
-    throw imageTooLarge();
-  }
-
-  const formData = await readLimitedMultipartFormData(request, contentType);
-  const file = imageFile(formData);
-  assertSupportedImageMetadata(file);
-  const validated = await validateUploadedFile(file);
-  if (!isImageUploadMime(validated.mimeType)) {
-    throw new AppError(
-      "UNSUPPORTED_IMAGE_TYPE",
-      "Choose a PNG, JPEG, or WebP image.",
-      400,
-    );
-  }
-  return validated;
 }
 
 function assertEditableArticle<T extends { mergedIntoArticleId?: string | null }>(
@@ -164,7 +55,7 @@ export async function POST(request: Request, context: RouteContext) {
     const article = await getPipelineArticleById(database, id);
     assertEditableArticle(article);
 
-    const image = await readImageUpload(request);
+    const image = await readNewsImageUpload(request);
     const bucket = getNewsImageBucket();
     const capabilityKey = crypto.randomUUID().replaceAll("-", "");
     const storageKey = newsImageStorageKey(capabilityKey);

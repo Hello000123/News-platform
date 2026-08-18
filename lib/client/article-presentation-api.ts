@@ -97,3 +97,36 @@ export async function updatePublicPagePresentation(
   }
   return body as ArticlePresentationUpdateResponse;
 }
+
+export async function uploadPresentationImage(file: File) {
+  const formData = new FormData();
+  formData.set("file", file);
+  const response = await fetch("/api/employee/presentation-images", {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...csrfHeaders(),
+    },
+    body: formData,
+  });
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new ArticlePresentationRequestError(
+      "INVALID_SERVER_RESPONSE",
+      "The server returned an unreadable response.",
+      response.status,
+    );
+  }
+  if (!response.ok) {
+    const error = (body as { error?: { code?: string; message?: string } }).error;
+    throw new ArticlePresentationRequestError(
+      error?.code ?? "PRESENTATION_IMAGE_UPLOAD_FAILED",
+      error?.message ?? "The picture could not be replaced.",
+      response.status,
+    );
+  }
+  return body as { imageUrl: string };
+}

@@ -15,8 +15,10 @@ import { getPipelineArticleById } from "@/lib/server/feeds/repository";
 import {
   applyArticleTextStyle,
   articlePresentationBlockText,
+  articlePresentationImageSource,
   createDefaultArticlePresentation,
   replaceArticleText,
+  setArticlePresentationImageSource,
   validateArticlePresentation,
   type ArticlePresentation,
 } from "@/lib/shared/article-presentation";
@@ -159,6 +161,75 @@ describe("restricted article presentation model", () => {
     expect(() =>
       validateArticlePresentation(initial, 20, sourceBlocks),
     ).toThrow(/changed after this presentation draft was opened/iu);
+  });
+
+  it("replaces an image source per image while keeping geometry untouched", () => {
+    const initial = createDefaultArticlePresentation(
+      20,
+      sourceBlocks,
+      ["hero"],
+    );
+    expect(articlePresentationImageSource(initial, "hero", "/fallback.webp")).toBe(
+      "/fallback.webp",
+    );
+
+    const replaced = setArticlePresentationImageSource(
+      initial,
+      "hero",
+      "/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000",
+    );
+    expect(articlePresentationImageSource(replaced, "hero", "/fallback.webp")).toBe(
+      "/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000",
+    );
+    expect(replaced.imageScalePercent).toBe(initial.imageScalePercent);
+    expect(replaced.imageAspectRatio).toBe(initial.imageAspectRatio);
+    expect(replaced.imageSettings).toEqual(initial.imageSettings);
+
+    const revalidated = validateArticlePresentation(replaced, 20, sourceBlocks, [
+      "hero",
+    ]);
+    expect(revalidated.imageSources.hero).toBe(replaced.imageSources.hero);
+  });
+
+  it("rejects replacement sources for unknown images or unsafe URLs", () => {
+    const initial = createDefaultArticlePresentation(20, sourceBlocks, ["hero"]);
+    expect(() =>
+      setArticlePresentationImageSource(
+        initial,
+        "Not an image!",
+        "/api/news-images/abc123abc123abc123abc123abc123ab?v=1",
+      ),
+    ).toThrow();
+
+    expect(() =>
+      setArticlePresentationImageSource(
+        initial,
+        "hero",
+        "https://evil.example.test/picture.png",
+      ),
+    ).toThrow();
+    expect(() =>
+      setArticlePresentationImageSource(
+        initial,
+        "hero",
+        "/api/news-images/nothex?v=1",
+      ),
+    ).toThrow();
+
+    expect(() =>
+      validateArticlePresentation(
+        {
+          ...initial,
+          imageSources: {
+            hero: "/api/news-images/abc123abc123abc123abc123abc123ab?v=1",
+            "body:0": "/api/news-images/abc123abc123abc123abc123abc123ab?v=1",
+          },
+        },
+        20,
+        sourceBlocks,
+        ["hero"],
+      ),
+    ).toThrow(/cannot be added or replaced/iu);
   });
 });
 
