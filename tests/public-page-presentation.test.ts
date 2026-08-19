@@ -11,9 +11,11 @@ import {
 } from "@/lib/server/public-page-presentation";
 import {
   articlePresentationBlockText,
+  articlePresentationImageSource,
   createDefaultArticlePresentation,
   replaceArticleText,
   setArticlePresentationImageGeometry,
+  setArticlePresentationImageSource,
 } from "@/lib/shared/article-presentation";
 import { createPublicPagePresentationSource } from "@/lib/shared/public-page-presentation";
 
@@ -79,8 +81,13 @@ describe("public-page presentation persistence", () => {
         "home:related:story:image",
         { imageScalePercent: 65, imageAspectRatio: 1.4 },
       );
+      const replaced = setArticlePresentationImageSource(
+        resized,
+        "home:lead:story:image",
+        "/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000",
+      );
 
-      await savePublicPagePresentationDraft(database, source, resized, "employee-1");
+      await savePublicPagePresentationDraft(database, source, replaced, "employee-1");
       const saved = await getPublicPagePresentationState(database, source);
       expect(
         articlePresentationBlockText(saved.draft, "home:related:story:title"),
@@ -90,11 +97,18 @@ describe("public-page presentation persistence", () => {
         imageAspectRatio: 1.4,
       });
       expect(
+        articlePresentationImageSource(
+          saved.draft,
+          "home:lead:story:image",
+          "/fallback.webp",
+        ),
+      ).toBe("/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000");
+      expect(
         articlePresentationBlockText(saved.published, "home:related:story:title"),
       ).toBe("Related report");
       expect(saved.hasUnpublishedChanges).toBe(true);
 
-      await publishPublicPagePresentation(database, source, resized, "employee-1");
+      await publishPublicPagePresentation(database, source, replaced, "employee-1");
       const published = await getPublicPagePresentationState(database, source);
       expect(
         articlePresentationBlockText(published.published, "home:related:story:title"),
@@ -102,9 +116,14 @@ describe("public-page presentation persistence", () => {
       expect(published.published.imageSettings["home:related:story:image"]?.imageScalePercent).toBe(
         65,
       );
-      expect(published.hasUnpublishedChanges).toBe(false);
-
-      const evolvedSource = createPublicPagePresentationSource(
+      expect(
+        articlePresentationImageSource(
+          published.published,
+          "home:lead:story:image",
+          "/fallback.webp",
+        ),
+      ).toBe("/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000");
+      expect(published.hasUnpublishedChanges).toBe(false);      const evolvedSource = createPublicPagePresentationSource(
         "homepage",
         [
           { id: "home:latest:new-story:title", text: "New report" },

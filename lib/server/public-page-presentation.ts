@@ -53,6 +53,11 @@ function readStoredPresentation(
         parsed.imageSettings[imageId] ?? fallback.imageSettings[imageId],
       ]),
     );
+    const imageSources = Object.fromEntries(
+      source.sourceImageIds
+        .filter((imageId) => parsed.imageSources[imageId])
+        .map((imageId) => [imageId, parsed.imageSources[imageId]]),
+    );
     return validateArticlePresentation(
       {
         ...fallback,
@@ -60,6 +65,7 @@ function readStoredPresentation(
           (block) => storedBlocks.get(block.id) ?? block,
         ),
         imageSettings,
+        imageSources,
       },
       source.sourceUpdatedAt,
       source.sourceBlocks,
