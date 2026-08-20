@@ -44,6 +44,44 @@ const commonTitleWords = new Set([
 
 const recurringGuidePublisherWords = new Set(["new", "nyt", "nytimes", "times", "york"]);
 
+const recurringPromotionSubjectNoiseWords = new Set([
+  "april",
+  "august",
+  "code",
+  "codes",
+  "coupon",
+  "coupons",
+  "deal",
+  "deals",
+  "december",
+  "discount",
+  "discounts",
+  "exclusive",
+  "february",
+  "free",
+  "get",
+  "january",
+  "july",
+  "june",
+  "march",
+  "may",
+  "november",
+  "october",
+  "off",
+  "only",
+  "promo",
+  "promotion",
+  "promotional",
+  "save",
+  "saving",
+  "savings",
+  "september",
+  "up",
+]);
+
+const recurringPromotionTemplate =
+  /\b(?:promo\s+codes?|coupon\s+codes?|discount\s+codes?|coupons)\b/iu;
+
 const latinEventTokenGroups: Readonly<Record<string, string>> = {
   debut: "event:launch",
   debuts: "event:launch",
@@ -171,6 +209,31 @@ function recurringGuideSubjectsConflict(leftTitle: string, rightTitle: string) {
   return Boolean(leftSubject && rightSubject && leftSubject !== rightSubject);
 }
 
+function recurringPromotionSubject(title: string) {
+  const normalized = title.normalize("NFKC").toLocaleLowerCase("en");
+  const template = normalized.match(recurringPromotionTemplate);
+  if (!template || template.index === undefined) return null;
+
+  const subjectTokens =
+    normalized
+      .slice(0, template.index)
+      .match(/[\p{Script=Latin}\p{N}]+/gu)
+      ?.filter(
+        (token) =>
+          token.length > 1 &&
+          !/^\d+(?:\.\d+)?$/u.test(token) &&
+          !commonTitleWords.has(token) &&
+          !recurringPromotionSubjectNoiseWords.has(token),
+      ) ?? [];
+  return subjectTokens.length > 0 ? subjectTokens.join(" ") : null;
+}
+
+function recurringPromotionSubjectsConflict(leftTitle: string, rightTitle: string) {
+  const leftSubject = recurringPromotionSubject(leftTitle);
+  const rightSubject = recurringPromotionSubject(rightTitle);
+  return Boolean(leftSubject && rightSubject && leftSubject !== rightSubject);
+}
+
 function hanBigrams(title: string) {
   const runs = title.normalize("NFKC").match(/\p{Script=Han}+/gu) ?? [];
   const grams = new Set<string>();
@@ -214,6 +277,7 @@ export function titlesDescribeSameStory(leftTitle: string, rightTitle: string) {
   if (!leftNormalized || !rightNormalized) return false;
   if (leftNormalized === rightNormalized) return true;
   if (recurringGuideSubjectsConflict(leftTitle, rightTitle)) return false;
+  if (recurringPromotionSubjectsConflict(leftTitle, rightTitle)) return false;
   if (eventSignaturesConflict(leftTitle, rightTitle)) return false;
 
   const leftLatin = latinAndNumberTokens(leftTitle);

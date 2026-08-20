@@ -218,6 +218,18 @@ describe("NewsHomepage rendering", () => {
     expect(container.querySelector(".news-presentation-image-frame")).toBeTruthy();
   });
 
+  it("keeps presentation image identifiers stable when an article is updated", () => {
+    const original = article(0);
+    const updated = { ...original, updatedAt: original.updatedAt + 60 };
+    const originalSource = homepagePresentationSource(buildHomepageView([original]));
+    const updatedSource = homepagePresentationSource(buildHomepageView([updated]));
+
+    expect(updatedSource.sourceImageIds).toEqual(originalSource.sourceImageIds);
+    expect(updatedSource.sourceBlocks.map(({ id }) => id)).not.toEqual(
+      originalSource.sourceBlocks.map(({ id }) => id),
+    );
+  });
+
   it("opens the same restricted Home ribbon directly on the front page", () => {
     const leadArticle = article(0);
     const view = buildHomepageView([leadArticle]);

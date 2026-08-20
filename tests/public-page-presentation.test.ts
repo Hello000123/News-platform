@@ -123,7 +123,9 @@ describe("public-page presentation persistence", () => {
           "/fallback.webp",
         ),
       ).toBe("/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000");
-      expect(published.hasUnpublishedChanges).toBe(false);      const evolvedSource = createPublicPagePresentationSource(
+      expect(published.hasUnpublishedChanges).toBe(false);
+
+      const evolvedSource = createPublicPagePresentationSource(
         "homepage",
         [
           { id: "home:latest:new-story:title", text: "New report" },
@@ -132,17 +134,28 @@ describe("public-page presentation persistence", () => {
         ],
         [
           "home:latest:new-story:image",
-          "home:related:story:image",
-          "home:lead:story:image",
+          "home:related:stable:image",
+          "home:lead:stable:image",
         ],
+        {
+          "home:related:stable:image": ["home:related:story:image"],
+          "home:lead:stable:image": ["home:lead:story:image"],
+        },
       );
       const rebased = await getPublicPagePresentationState(database, evolvedSource);
       expect(
         articlePresentationBlockText(rebased.published, "home:related:story:title"),
       ).toBe("Updated report");
       expect(
-        rebased.published.imageSettings["home:related:story:image"]?.imageScalePercent,
+        rebased.published.imageSettings["home:related:stable:image"]?.imageScalePercent,
       ).toBe(65);
+      expect(
+        articlePresentationImageSource(
+          rebased.published,
+          "home:lead:stable:image",
+          "/fallback.webp",
+        ),
+      ).toBe("/api/news-images/abc123abc123abc123abc123abc123ab?v=1720000000000");
       expect(
         articlePresentationBlockText(rebased.published, "home:latest:new-story:title"),
       ).toBe("New report");

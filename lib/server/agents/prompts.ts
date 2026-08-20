@@ -314,7 +314,7 @@ const numericSuffixPattern =
 const numericCurrencyPrefixPattern =
   /(HK\$|US\$|USD|HKD|CNY|RMB|港幣|港元|美元|人民幣|\$)\s*$/iu;
 const numericIdentifierPrefixPattern =
-  /(?:^|[^A-Za-z0-9])(?:Windows|WinUI|macOS|iOS|iPadOS|watchOS|tvOS|visionOS|Android|ChromeOS|Chrome|Firefox|Safari|Ubuntu|Fedora|Debian|Apollo|GPT|Core\s+Ultra|Xeon|Ryzen|EPYC|RDNA|Xe|PCIe|USB|Bluetooth|Wi-?Fi|Series|Gen(?:eration)?)\s*[-‐‑‒–—]?\s*$/iu;
+  /(?:^|[^A-Za-z0-9])(?:Windows|WinUI|macOS|iOS|iPadOS|watchOS|tvOS|visionOS|Android|ChromeOS|Chrome|Firefox|Safari|Ubuntu|Fedora|Debian|Apollo|GPT|Core\s+Ultra|Ryzen\s+AI|Xeon|Ryzen|EPYC|RDNA|Xe|PCIe|USB|Bluetooth|Wi-?Fi|Series|Gen(?:eration)?|Snapdragon|Geekbench|Cinebench|HDMI|DisplayPort|DDR|LPDDR|GDDR|NVMe|SATA|Thunderbolt|Exynos|Dimensity|Kirin|Helio|Tensor|Athlon|Threadripper|GeForce|Radeon|RTX|RX|PlayStation|Xbox|Switch|iPhone|iPad|MacBook|iMac|Galaxy|Pixel|Surface|Mate|OnePlus|Redmi|Honor|Vivo|Oppo)\s*[-‐‑‒–—]?\s*$/iu;
 
 const englishMonthTokenPattern =
   "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec";
@@ -390,11 +390,19 @@ const englishSmallNumberValues: Readonly<Record<string, string>> = {
 };
 const englishSmallNumberPattern =
   /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/giu;
-const englishOccurrenceWordPattern = /\b(once|twice)\b/giu;
+// `at once` / `for once` are idioms ("immediately" / "exceptionally"), not
+// occurrence counts. Without this guard, "all at once" becomes the required
+// numeric fact “1” (count:occurrence) that no faithful Chinese translation
+// (「同時」/「立即」) can reproduce.
+const englishOccurrenceWordPattern = /(?<!\bat\s)(?<!\bfor\s)\b(once|twice)\b/giu;
+// The intervening "word" tokens are Latin-only. Han text is not an English
+// word: allowing it here lets the heuristic leap across whole Chinese phrases
+// (e.g. `X2 Elite Extreme機型擊敗插電的Intel Core`) and attach a distant
+// English count noun such as "Core" to the wrong number.
 const nearbyEnglishCountNounPattern =
-  /^(?:\s+[\p{L}][\p{L}\p{N}'’+.-]*){0,4}\s+(people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|writers?|authors?|followers?|views?|impressions?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|apps?|applications?|prototypes?|modes?|reports?|cases?|seats?|cores?|threads?|processes?|phases?|gpus?|igpus?|configurations?|variants?|skus?|segments?|styles?|types?|options?|choices?|picks?|recommendations?|managers?|passwords?|vacuums?|landers?|orbiters?)\b/iu;
+  /^(?:\s+[A-Za-z][A-Za-z0-9'’+.-]*){0,4}\s+(people|persons?|users?|customers?|workers?|employees?|participants?|attendees?|students?|writers?|authors?|followers?|views?|impressions?|pieces?|objects?|devices?|units?|vehicles?|rockets?|stages?|satellites?|spacecraft|monitors?|consoles?|systems?|models?|products?|versions?|items?|apps?|applications?|prototypes?|modes?|reports?|cases?|seats?|cores?|threads?|processes?|phases?|gpus?|igpus?|configurations?|variants?|skus?|segments?|styles?|types?|options?|choices?|picks?|recommendations?|managers?|passwords?|vacuums?|landers?|orbiters?)\b/iu;
 const qualifiedEnglishCountNounPattern =
-  /^\s+[\p{L}\p{N}][\p{L}\p{N}.'’+-]*-(cores?|threads?|processes?|phases?|gpus?|igpus?)\b/iu;
+  /^\s+[A-Za-z][A-Za-z0-9'’+-]*-(cores?|threads?|processes?|phases?|gpus?|igpus?)\b/iu;
 const localizedTechnicalCountPattern =
   /^\s*(?:(?:個|个|項|项|條|条|組|组|套)\s*)?(?:[A-Za-z][A-Za-z0-9.+-]*\s*){0,3}(?:(?:個|个|項|项|條|条|組|组|套)\s*)?(?:核心|執行緒|执行绪|線程|线程|進程|进程|程序|相位|配置|架構單元|架构单元)/u;
 
@@ -464,11 +472,30 @@ function numericUnitAt(
   const prefix = text.slice(Math.max(0, start - 32), start);
   const prefixUnit = prefix.match(numericCurrencyPrefixPattern)?.[1];
   if (prefixUnit) return normalizeNumericUnit(prefixUnit);
+  // A digit glued directly to a preceding Latin letter is part of a product
+  // or model identifier (`X2`, `X9`, `Xe3`, `USB2`), not a quantity. Without
+  // this guard, `Snapdragon X2 ... System` becomes "2 systems" and any
+  // rewording of the following noun in a Chinese rewrite flips the unit,
+  // causing both unsupported and missing numeric facts. Chinese numerals and
+  // written English numbers keep unit inference: `app五倍` and `app five
+  // times` are quantities, and the Arabic-digit-only check preserves that.
+  if (
+    /[0-9]/u.test(text[start] ?? "") &&
+    /[\p{Script=Latin}]/u.test(text[start - 1] ?? "")
+  ) {
+    return null;
+  }
   // Product and protocol version numbers are identifiers, not quantities.
   // Without this guard, wording such as `Windows 11天氣` can turn the OS
   // version into "11 days", while `Xe3P` can become a fabricated core count.
   if (numericIdentifierPrefixPattern.test(prefix)) return null;
   const suffix = text.slice(end, end + 32);
+  // A digit run chained to another digit run (`Ryzen AI 9 465`, `Windows 11
+  // 23H2`) is a compound model or version number. Neither side is a quantity:
+  // without this guard, `Ryzen AI 9 465 systems` becomes "465 systems" in the
+  // source while the Chinese rewrite renders it unit-less, producing both
+  // unsupported and missing numeric facts.
+  if (/\d\s*$/u.test(prefix) || /^\s*\d/u.test(suffix)) return null;
   if (
     /^\s*(?:[-‐‑‒–—]\s*)?times?\s+(?:the\b|as\b)/iu.test(suffix)
   ) {
@@ -1065,6 +1092,7 @@ export const REWRITE_SYSTEM_PROMPT = [
   "",
   "香港繁體中文",
   "- requiredOutputLanguage 要求繁體中文時，標題及敘述必須使用香港繁體中文、香港常用書面語及中文標點；避免簡體字、內地新聞套語、生硬直譯、口語填充和宣傳腔。",
+  "- 標題及敘述不得使用中文分號「；」；須按句意改用逗號「，」或句號「。」。直接引文內部標點仍須完全保留來源原文。",
   "- 把外語敘述準確翻譯成自然的香港新聞中文，但不得翻譯直接引文、必須逐字保留的名稱、品牌、型號、產品名稱或來源文字詞語。來源已有正式中文名稱時才可採用。",
   "- requiredOutputLanguage 沒有要求繁體中文時，保留 primaryText 的主要語言及文字系統；直接引文和專有名詞仍須保留來源文字。",
   "",

@@ -301,12 +301,25 @@ function homepageImageId(
   section: string,
   article: HomepageArticle,
 ) {
-  return `${homepageItemPrefix(section, article)}:image`;
+  return [
+    "home",
+    section,
+    presentationItemToken(article.article.id),
+    "image",
+  ].join(":");
 }
 
 export function homepagePresentationSource(view: HomepageView) {
   const blocks: { id: string; text: string }[] = [];
   const imageIds: string[] = [];
+  const legacyImageIdsBySourceId: Record<string, string[]> = {};
+  const addImage = (section: string, article: HomepageArticle) => {
+    const imageId = homepageImageId(section, article);
+    imageIds.push(imageId);
+    legacyImageIdsBySourceId[imageId] = [
+      `${homepageItemPrefix(section, article)}:image`,
+    ];
+  };
   if (view.lead) {
     blocks.push({
       id: homepageBlockId("lead", view.lead, "title"),
@@ -324,14 +337,14 @@ export function homepagePresentationSource(view: HomepageView) {
         text: point,
       });
     });
-    imageIds.push(homepageImageId("lead", view.lead));
+    addImage("lead", view.lead);
   }
   view.related.forEach((article) => {
     blocks.push({
       id: homepageBlockId("related", article, "title"),
       text: homepageArticleTitle(article),
     });
-    imageIds.push(homepageImageId("related", article));
+    addImage("related", article);
   });
   view.categoryShelves.forEach((shelf) => {
     shelf.articles.forEach((article) => {
@@ -346,7 +359,7 @@ export function homepagePresentationSource(view: HomepageView) {
           text: article.summary,
         });
       }
-      imageIds.push(homepageImageId(section, article));
+      addImage(section, article);
     });
   });
   view.latest.forEach((article) => {
@@ -355,7 +368,12 @@ export function homepagePresentationSource(view: HomepageView) {
       text: homepageArticleTitle(article),
     });
   });
-  return createPublicPagePresentationSource("homepage", blocks, imageIds);
+  return createPublicPagePresentationSource(
+    "homepage",
+    blocks,
+    imageIds,
+    legacyImageIdsBySourceId,
+  );
 }
 
 function formatDate(timestamp: number | null) {

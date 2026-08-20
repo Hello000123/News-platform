@@ -119,7 +119,7 @@ describe("pipeline relaxed fidelity", () => {
       "Windows Latest spotted nine Chromium processes powering it through WebView2. Microsoft has shown intent to move specific elements of Windows 11 over to WinUI 3.",
     ].join(" ");
     const candidate =
-      "Windows 11 Weather app記憶體用量達macOS Weather app五倍\n\nWindows Latest一名撰稿人開啟Windows 11 Weather app後，發現它佔用1.2GB記憶體，高於macOS Weather app的246.7MB，並運行9個Chromium程序。應用程式採用WebView2技術；報道亦提到微軟正把部分Windows 11元素轉用WinUI 3。";
+      "Windows 11 Weather app記憶體用量達macOS Weather app五倍\n\nWindows Latest一名撰稿人開啟Windows 11 Weather app後，發現它佔用1.2GB記憶體，高於macOS Weather app的246.7MB，並運行9個Chromium程序。應用程式採用WebView2技術，報道亦提到微軟正把部分Windows 11元素轉用WinUI 3。";
     const result = await runRewriteAgent(
       snapshot(source, {
         linkedTitle:
@@ -281,7 +281,7 @@ describe("pipeline relaxed fidelity", () => {
     const source =
       "At I/O 2026, Google teased an AI Studio app for Android and iOS. More than 800,000 users pre-ordered it. For example, say you want to start a garden and imagine Gemini creating an app that teaches you the basics.";
     const candidate =
-      "Google取消AI Studio手機App\n\nGoogle取消原定為Android及iOS推出的一款AI Studio應用程式，改為把相關功能整合至Gemini。超過800,000名用戶曾預先登記；例如一名用戶想開始園藝，Gemini可建立另一款應用程式提供協助。";
+      "Google取消AI Studio手機App\n\nGoogle取消原定為Android及iOS推出的一款AI Studio應用程式，改為把相關功能整合至Gemini。超過800,000名用戶曾預先登記，例如一名用戶想開始園藝，Gemini可建立另一款應用程式提供協助。";
     const result = await runRewriteAgent(
       snapshot(source, {
         linkedTitle:
@@ -568,6 +568,42 @@ describe("pipeline relaxed fidelity", () => {
       systemPrompt: expect.stringContaining("只負責修正來源忠實度的機械式校正器"),
       temperature: 0,
     });
+  });
+
+  it("restores one-to-one altered quotations while allowing optional omissions", async () => {
+    const source = snapshot(
+      "公司公布安排。「安排維持不變。」公告亦稱：「稍後再公布。」",
+    );
+    const candidate =
+      "公司更新安排\n\n公告稱：「安排基本維持不變。」公司稍後公布詳情。";
+    const completion = vi.fn().mockResolvedValue(candidate);
+
+    await expect(
+      runRewriteAgent(source, null, completion, relaxedContext),
+    ).resolves.toEqual({
+      finalText:
+        "公司更新安排\n\n公告稱：「安排維持不變。」公司稍後公布詳情。",
+      validation: { status: "passed_after_retry", attempts: 2 },
+    });
+    expect(completion).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaces narrative Chinese semicolons while preserving quoted source punctuation", async () => {
+    const source = snapshot(
+      "公司表示：「計劃不變；安排稍後公布。」公司亦交代後續工作。",
+    );
+    const candidate =
+      "公司交代計劃安排\n\n公司表示：「計劃不變；安排稍後公布。」；公司亦交代後續工作。";
+    const completion = vi.fn().mockResolvedValue(candidate);
+
+    await expect(
+      runRewriteAgent(source, null, completion, relaxedContext),
+    ).resolves.toEqual({
+      finalText:
+        "公司交代計劃安排\n\n公司表示：「計劃不變；安排稍後公布。」，公司亦交代後續工作。",
+      validation: { status: "passed", attempts: 1 },
+    });
+    expect(completion).toHaveBeenCalledOnce();
   });
 
   it("omits an optional unsupported-number sentence after both focused corrections", async () => {

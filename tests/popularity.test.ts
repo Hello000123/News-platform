@@ -104,6 +104,35 @@ describe("pipeline story popularity", () => {
     ])).toHaveLength(3);
   });
 
+  it("does not merge different merchants that use the same recurring coupon template", () => {
+    const motleyFool =
+      "Motley Fool Promo Code: $200 Off on Stock Advisor August 2026";
+    const alternateMotleyFool =
+      "Motley Fool Coupon Code: Save $200 on Stock Advisor in August 2026";
+    const bose = "Bose Promo Code: 40% Off for August 2026";
+    const brooks = "20% Off Brooks Promo Code | August 2026";
+    const hoka = "Hoka Coupon Codes: 20% Off in August 2026";
+
+    expect(titlesDescribeSameStory(motleyFool, alternateMotleyFool)).toBe(true);
+    expect(titlesDescribeSameStory(motleyFool, bose)).toBe(false);
+    expect(titlesDescribeSameStory(brooks, hoka)).toBe(false);
+
+    const stories = selectPopularPipelineStories([
+      article("motley-a", "wire-a", motleyFool),
+      article("motley-b", "wire-b", alternateMotleyFool),
+      article("bose", "wire-c", bose),
+      article("brooks", "wire-d", brooks),
+      article("hoka", "wire-e", hoka),
+    ]);
+
+    expect(stories).toHaveLength(4);
+    expect(stories[0]).toMatchObject({
+      sourceCount: 2,
+      reportCount: 2,
+      relatedArticleIds: expect.arrayContaining(["motley-a", "motley-b"]),
+    });
+  });
+
   it("keeps contradictory events out of the same story cluster", () => {
     expect(
       titlesDescribeSameStory(

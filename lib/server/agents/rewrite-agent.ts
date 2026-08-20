@@ -20,6 +20,7 @@ import {
   SOURCE_FIDELITY_CORRECTION_SYSTEM_PROMPT,
 } from "@/lib/server/agents/prompts";
 import {
+  extractQuotationSpans,
   validateQuotationPreservation,
   type QuotationIssue as InternalQuotationIssue,
 } from "@/lib/server/agents/quotation-validator";
@@ -45,6 +46,25 @@ const EMPTY_REWRITE_CONTEXT: RewriteContext = {
 function removeCodeFence(text: string) {
   const match = text.match(/^\x60\x60\x60(?:text|markdown)?\s*([\s\S]*?)\s*\x60\x60\x60$/iu);
   return (match?.[1] ?? text).trim();
+}
+
+/**
+ * House style avoids Chinese semicolons in headlines and narration. Quoted
+ * source text remains byte-for-byte intact so this cleanup cannot weaken the
+ * quotation-fidelity guarantees applied later in the rewrite pipeline.
+ */
+function normalizeEditorialSemicolons(text: string) {
+  if (!text.includes("；")) return text;
+
+  const quotationRanges = extractQuotationSpans(text).map(({ start, end }) => ({
+    start,
+    end,
+  }));
+  return text.replace(/；/gu, (semicolon, offset: number) =>
+    quotationRanges.some(({ start, end }) => offset > start && offset < end)
+      ? semicolon
+      : "，",
+  );
 }
 
 function canonicalArticle(text: string) {
@@ -579,6 +599,46 @@ function repairPunctuationOnlyQuotations(
   );
 }
 
+function repairRelaxedQuotationIssues(
+  candidate: string,
+  validation: ReturnType<typeof validateQuotationPreservation>,
+) {
+  const repairableIssues = validation.issues.filter(
+    (issue) =>
+      issue.kind === "modified" || issue.kind === "punctuation_changed",
+  );
+  if (
+    repairableIssues.length === 0 ||
+    validation.issues.some(
+      (issue) =>
+        !["modified", "omitted", "punctuation_changed"].includes(issue.kind) ||
+        (issue.kind !== "omitted" &&
+          (issue.sourceQuotes.length !== 1 || issue.candidateQuotes.length !== 1)),
+    )
+  ) {
+    return null;
+  }
+
+  const edits = repairableIssues
+    .map((issue) => ({
+      start: issue.candidateQuotes[0].start,
+      end: issue.candidateQuotes[0].end,
+      replacement: issue.sourceQuotes[0].raw,
+    }))
+    .sort((left, right) => right.start - left.start);
+  if (
+    new Set(edits.map((edit) => `${edit.start}:${edit.end}`)).size !== edits.length ||
+    edits.some((edit, index) => index > 0 && edit.end > edits[index - 1].start)
+  ) {
+    return null;
+  }
+
+  return edits.reduce(
+    (text, edit) => text.slice(0, edit.start) + edit.replacement + text.slice(edit.end),
+    candidate,
+  );
+}
+
 function unchangedError(candidateText: string, attempts: number) {
   return new AppError(
     "UNCHANGED_REWRITE",
@@ -644,7 +704,7 @@ async function generateCandidate(
     maxTokens: 64_000,
     temperature,
   });
-  return removeCodeFence(content);
+  return normalizeEditorialSemicolons(removeCodeFence(content));
 }
 
 export async function runRewriteAgent(
@@ -879,25 +939,26 @@ export async function runRewriteAgent(
     secondCandidate,
   );
   if (!quotationValidationPasses(secondQuotationValidation, context)) {
-    const punctuationRepairedCandidate = repairPunctuationOnlyQuotations(
-      secondCandidate,
-      secondQuotationValidation,
-    );
-    if (punctuationRepairedCandidate) {
-      validateSafeCandidate(punctuationRepairedCandidate, source, context);
-      if (isEditingBaselineEcho(punctuationRepairedCandidate, source, context)) {
-        throw unchangedError(punctuationRepairedCandidate, completedAttempts);
+    const quotationRepairedCandidate =
+      repairPunctuationOnlyQuotations(secondCandidate, secondQuotationValidation) ??
+      (context.relaxedFidelity
+        ? repairRelaxedQuotationIssues(secondCandidate, secondQuotationValidation)
+        : null);
+    if (quotationRepairedCandidate) {
+      validateSafeCandidate(quotationRepairedCandidate, source, context);
+      if (isEditingBaselineEcho(quotationRepairedCandidate, source, context)) {
+        throw unchangedError(quotationRepairedCandidate, completedAttempts);
       }
       const repairedValidation = validateQuotationPreservation(
         source.primaryText,
-        punctuationRepairedCandidate,
+        quotationRepairedCandidate,
       );
       const untraceableRepairedQuotation = untraceableDirectQuotationError(
         repairedValidation,
       );
       const repairedAttributionError = namedQuotationAttributionError(
         source.primaryText,
-        punctuationRepairedCandidate,
+        quotationRepairedCandidate,
         repairedValidation,
         completedAttempts,
         context.relaxedFidelity,
@@ -908,7 +969,7 @@ export async function runRewriteAgent(
         !repairedAttributionError
       ) {
         return rewriteApiResponseSchema.parse({
-          finalText: punctuationRepairedCandidate,
+          finalText: quotationRepairedCandidate,
           validation: { status: "passed_after_retry", attempts: completedAttempts },
         });
       }

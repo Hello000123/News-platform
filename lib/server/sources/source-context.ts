@@ -1,4 +1,4 @@
-import { lookup as nodeLookup } from "node:dns/promises";
+import { resolve4 as nodeResolve4, resolve6 as nodeResolve6 } from "node:dns/promises";
 import { isIP } from "node:net";
 
 export interface BuildSourceContextInput {
@@ -157,11 +157,40 @@ interface RetrievedSource {
 }
 
 const defaultDnsLookup: SourceDnsLookup = async (hostname) => {
-  const addresses = await nodeLookup(hostname, { all: true, verbatim: true });
-  return addresses.map(({ address, family }) => ({
-    address,
-    family: family === 6 ? 6 : 4,
-  }));
+  // Cloudflare Workers implements resolve4/resolve6 through DNS-over-HTTPS,
+  // but its node:dns lookup() API is intentionally not implemented. Resolve
+  // both families so the SSRF guard evaluates every address the hostname may
+  // use instead of relying only on the runtime's public-fetch restriction.
+  const [ipv4Result, ipv6Result] = await Promise.allSettled([
+    nodeResolve4(hostname),
+    nodeResolve6(hostname),
+  ]);
+  const addresses: DnsAddress[] = [];
+
+  if (ipv4Result.status === "fulfilled") {
+    addresses.push(
+      ...ipv4Result.value
+        // Workerd includes CNAME aliases in resolve4()/resolve6() results,
+        // even though Node normally documents these APIs as address-only.
+        // Validate the terminal A/AAAA records and ignore alias labels.
+        .filter((address) => isIP(address) === 4)
+        .map((address) => ({ address, family: 4 as const })),
+    );
+  }
+  if (ipv6Result.status === "fulfilled") {
+    addresses.push(
+      ...ipv6Result.value
+        .filter((address) => isIP(address) === 6)
+        .map((address) => ({ address, family: 6 as const })),
+    );
+  }
+  if (addresses.length > 0) return addresses;
+
+  const rejectedResult = [ipv4Result, ipv6Result].find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejectedResult) throw rejectedResult.reason;
+  return addresses;
 };
 
 export async function buildSourceContext(

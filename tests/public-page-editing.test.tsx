@@ -46,6 +46,18 @@ function report(
 describe("public category presentation editing", () => {
   afterEach(cleanup);
 
+  it("keeps presentation image identifiers stable when a report is updated", () => {
+    const original = report("technology", 1);
+    const updated = { ...original, updatedAt: original.updatedAt + 60 };
+    const originalSource = categoryPresentationSource([original], "technology");
+    const updatedSource = categoryPresentationSource([updated], "technology");
+
+    expect(updatedSource.sourceImageIds).toEqual(originalSource.sourceImageIds);
+    expect(updatedSource.sourceBlocks.map(({ id }) => id)).not.toEqual(
+      originalSource.sourceBlocks.map(({ id }) => id),
+    );
+  });
+
   it.each(["technology", "social-enterprise"] as const)(
     "edits every report on the %s archive without making fixed categories editable",
     (category) => {

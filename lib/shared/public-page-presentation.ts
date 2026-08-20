@@ -14,6 +14,7 @@ export interface PublicPagePresentationSource {
   sourceUpdatedAt: number;
   sourceBlocks: ArticlePresentationSourceBlock[];
   sourceImageIds: string[];
+  legacyImageIdsBySourceId: Record<string, string[]>;
 }
 
 function stableHash(value: string) {
@@ -33,6 +34,7 @@ export function createPublicPagePresentationSource(
   pageKey: PublicPagePresentationKey,
   sourceBlocks: readonly ArticlePresentationSourceBlock[],
   sourceImageIds: readonly string[],
+  legacyImageIdsBySourceId: Readonly<Record<string, readonly string[]>> = {},
 ): PublicPagePresentationSource {
   const revisionInput = JSON.stringify({
     pageKey,
@@ -44,5 +46,11 @@ export function createPublicPagePresentationSource(
     sourceUpdatedAt: stableHash(revisionInput),
     sourceBlocks: sourceBlocks.map((block) => ({ ...block })),
     sourceImageIds: [...sourceImageIds],
+    legacyImageIdsBySourceId: Object.fromEntries(
+      Object.entries(legacyImageIdsBySourceId).map(([imageId, legacyImageIds]) => [
+        imageId,
+        [...legacyImageIds],
+      ]),
+    ),
   };
 }

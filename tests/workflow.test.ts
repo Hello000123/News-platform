@@ -586,7 +586,7 @@ describe("rewrite workflow", () => {
       "DSE results set a record\n\n今年共有5.8萬名考生，當中24人成為狀元；羅每周訓練3至4小時。",
     );
     const rewritten =
-      "DSE成績創紀錄\n\n今年共有58,000名考生獲發成績，其中24人成為狀元；羅每周訓練3至4小時。";
+      "DSE成績創紀錄\n\n今年共有58,000名考生獲發成績，其中24人成為狀元，羅每周訓練3至4小時。";
     const completion = vi.fn().mockResolvedValue(rewritten);
 
     await expect(

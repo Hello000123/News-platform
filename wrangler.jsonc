@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "pressready-review",
+  "account_id": "d795f2f2ac58af5e123b27097f1f9766",
   "main": "./worker.ts",
+  "minify": true,
   "compatibility_date": "2026-07-28",
   "compatibility_flags": [
     "nodejs_compat",
@@ -44,7 +46,11 @@
       "0 0 * * *"
     ]
   },
+  "limits": {
+    "cpu_ms": 30000,
+    "subrequests": 1000
+  },
   "observability": {
-    "enabled": true
+    "enabled": false
   }
 }

@@ -85,7 +85,7 @@ function categoryImageId(
   category: NewsCategory,
   article: PipelineArticleView,
 ) {
-  return `${categoryItemPrefix(category, article)}:image`;
+  return `category:${category}:${presentationItemToken(article.id)}:image`;
 }
 
 function categoryDescriptionBlockId(category: NewsCategory) {
@@ -126,6 +126,7 @@ export function categoryPresentationSource(
     },
   ];
   const imageIds: string[] = [];
+  const legacyImageIdsBySourceId: Record<string, string[]> = {};
   articles.forEach((article) => {
     blocks.push({
       id: categoryBlockId(category, article, "title"),
@@ -138,7 +139,11 @@ export function categoryPresentationSource(
         text: summary,
       });
     }
-    imageIds.push(categoryImageId(category, article));
+    const imageId = categoryImageId(category, article);
+    imageIds.push(imageId);
+    legacyImageIdsBySourceId[imageId] = [
+      `${categoryItemPrefix(category, article)}:image`,
+    ];
   });
   if (articles.length === 0) {
     const emptyCopy = categoryEmptyCopy(category, loadFailed);
@@ -153,7 +158,12 @@ export function categoryPresentationSource(
       },
     );
   }
-  return createPublicPagePresentationSource(category, blocks, imageIds);
+  return createPublicPagePresentationSource(
+    category,
+    blocks,
+    imageIds,
+    legacyImageIdsBySourceId,
+  );
 }
 
 function ArchiveImage({

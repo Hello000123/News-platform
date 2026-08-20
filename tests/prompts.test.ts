@@ -181,6 +181,7 @@ describe("agent prompts", () => {
       "verbatimDirectQuotations 中每個項目都必須連同內部標點逐字保留",
       "不得把間接引語或輔助報道內容變成新的直接引文",
       "香港常用書面語及中文標點",
+      "標題及敘述不得使用中文分號",
       "避免簡體字、內地新聞套語、生硬直譯",
       "正文採用倒金字塔結構",
       "不要提及本次改寫、資料檢索或來源組合過程",
@@ -685,6 +686,94 @@ describe("agent prompts", () => {
       ]),
     );
     expect(facts).not.toContainEqual({ value: "11", unit: "time:day", raw: "11" });
+  });
+
+  it("treats model-name digits glued to a Latin letter as identifiers, not quantities", () => {
+    const sourceFacts = extractNumericFacts(
+      "A Battery-Powered Snapdragon X2 Elite Extreme System Beats A Plugged-In Intel Core Ultra X9 System, While Also Surpassing AMD Ryzen AI 9 465 In Geekbench 7 By 83%",
+    );
+    const candidateFacts = extractNumericFacts(
+      "電池供電的Snapdragon X2 Elite Extreme機型擊敗插電的Intel Core Ultra X9機型，在Geekbench 7更比AMD Ryzen AI 9 465高出83%",
+    );
+
+    expect(sourceFacts).toContainEqual({ value: "2", unit: null, raw: "2" });
+    expect(sourceFacts).toContainEqual({ value: "9", unit: null, raw: "9" });
+    expect(sourceFacts).not.toContainEqual({
+      value: "2",
+      unit: "count:unit",
+      raw: "2",
+    });
+    expect(sourceFacts).not.toContainEqual({
+      value: "9",
+      unit: "count:unit",
+      raw: "9",
+    });
+    expect(candidateFacts).toContainEqual({ value: "2", unit: null, raw: "2" });
+    expect(candidateFacts).toContainEqual({ value: "9", unit: null, raw: "9" });
+    expect(candidateFacts.every((fact) => numericFactHasSupport(fact, sourceFacts))).toBe(true);
+    expect(sourceFacts.every((fact) => numericFactHasSupport(fact, candidateFacts))).toBe(true);
+  });
+
+  it("treats space-separated version numbers before count nouns as identifiers", () => {
+    const sourceFacts = extractNumericFacts(
+      "AMD Ryzen AI 9 systems scored well in Geekbench 7 devices last week.",
+    );
+    const candidateFacts = extractNumericFacts(
+      "AMD Ryzen AI 9系統上星期在Geekbench 7裝置上取得佳績。",
+    );
+
+    expect(sourceFacts).toContainEqual({ value: "9", unit: null, raw: "9" });
+    expect(sourceFacts).toContainEqual({ value: "7", unit: null, raw: "7" });
+    expect(sourceFacts).not.toContainEqual({
+      value: "9",
+      unit: "count:unit",
+      raw: "9",
+    });
+    expect(sourceFacts).not.toContainEqual({
+      value: "7",
+      unit: "count:unit",
+      raw: "7",
+    });
+    expect(candidateFacts.every((fact) => numericFactHasSupport(fact, sourceFacts))).toBe(true);
+    expect(sourceFacts.every((fact) => numericFactHasSupport(fact, candidateFacts))).toBe(true);
+  });
+
+  it("treats compound model numbers as identifiers, not chained quantities", () => {
+    const sourceFacts = extractNumericFacts(
+      "The AMD Ryzen AI 9 465 systems and Windows 11 23H2 devices shipped together.",
+    );
+    const candidateFacts = extractNumericFacts(
+      "AMD Ryzen AI 9 465系統與Windows 11 23H2裝置同時出貨。",
+    );
+
+    expect(sourceFacts).toContainEqual({ value: "9", unit: null, raw: "9" });
+    expect(sourceFacts).toContainEqual({ value: "465", unit: null, raw: "465" });
+    expect(sourceFacts).toContainEqual({ value: "11", unit: null, raw: "11" });
+    expect(sourceFacts).not.toContainEqual({
+      value: "465",
+      unit: "count:unit",
+      raw: "465",
+    });
+    expect(candidateFacts.every((fact) => numericFactHasSupport(fact, sourceFacts))).toBe(true);
+    expect(sourceFacts.every((fact) => numericFactHasSupport(fact, candidateFacts))).toBe(true);
+  });
+
+  it("does not treat the idiom at once as an occurrence count", () => {
+    const facts = extractNumericFacts(
+      "The service crashed all at once, and the team restarted it for once.",
+    );
+
+    expect(facts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ unit: "count:occurrence" }),
+      ]),
+    );
+    expect(extractNumericFacts("The team tested the feature once and twice.")).toEqual(
+      expect.arrayContaining([
+        { value: "1", unit: "count:occurrence", raw: "once" },
+        { value: "2", unit: "count:occurrence", raw: "twice" },
+      ]),
+    );
   });
 
   it("normalizes English hardware counts to Chinese item classifiers", () => {

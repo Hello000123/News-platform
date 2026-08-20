@@ -47,16 +47,29 @@ function readStoredPresentation(
     const parsed = articlePresentationSchema.parse(JSON.parse(json));
     const fallback = defaultPresentation(source);
     const storedBlocks = new Map(parsed.blocks.map((block) => [block.id, block]));
+    const storedImageValue = <T>(values: Record<string, T>, imageId: string) => {
+      for (const candidateId of [
+        imageId,
+        ...(source.legacyImageIdsBySourceId[imageId] ?? []),
+      ]) {
+        if (values[candidateId] !== undefined) return values[candidateId];
+      }
+      return undefined;
+    };
     const imageSettings = Object.fromEntries(
       source.sourceImageIds.map((imageId) => [
         imageId,
-        parsed.imageSettings[imageId] ?? fallback.imageSettings[imageId],
+        storedImageValue(parsed.imageSettings, imageId) ??
+          fallback.imageSettings[imageId],
       ]),
     );
     const imageSources = Object.fromEntries(
       source.sourceImageIds
-        .filter((imageId) => parsed.imageSources[imageId])
-        .map((imageId) => [imageId, parsed.imageSources[imageId]]),
+        .map((imageId) => [
+          imageId,
+          storedImageValue(parsed.imageSources, imageId),
+        ])
+        .filter((entry): entry is [string, string] => Boolean(entry[1])),
     );
     return validateArticlePresentation(
       {
